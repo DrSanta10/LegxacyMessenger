@@ -130,10 +130,45 @@ class LoginScreen(tk.Frame):
     
     tk.Frame(outer, bg = ACCENT_DIM, height = 2, width = 400).pack(fill = "x")
     
+def _attempt_login(self):
+    username = self.entry_user.get().strip()
+    password = self.entry_pass.get().strip()
+    host = self.entry_host.get().strip() or DEFAULT_HOST
+    port_str = self.entry_port.get().strip()
+    
+    if not username:
+        self.status_var.set("Username cannot be empty!")
+        return    
+        
+    if not password:
+        self.status_var.set("Password cannot be empty!")
+        return
+    
+    try:
+        port = int(port_str)
+    except ValueError:
+        self.status_var.set("Port must be a number.")
+        return
+    
+    self.status_var.set("Connecting...")
+    self.after(100, lambda: self.on_login(username, password, host, port))
+    
     
 class ChatScreen(tk.Frame):
-    def
+    def __init__(self, master, username, network_client = None):
+        super().__init__(master, bg = BG_DEEP)
+        self.username = username
+        self.net = network_client
+        self.current_chat = None
+        self.current_type = None
+        self.chat_hisotires = {}
+        self._build()
     
+
+class InputDialog(tk.TopLevel):
+    
+class NetworkClient:    
+
 class LegxacyApp(tk.Tk):
     
 
