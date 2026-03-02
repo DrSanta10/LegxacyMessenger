@@ -195,7 +195,127 @@ class ChatScreen(tk.Frame):
         self.status_dot.pack(side = "right", padx = (0, 12))
         
         tk.Frame(self, bg = ACCENT, height = 2).pack(fill = "x")
+        
+    def _build_left_panel(self, parent):
+        panel = tk.Frame(parent, bg = BG_PANEL, width = 220)
+        panel.pack(side = "left", fill = "y")
+        panel.pack_propagate(False)
     
+        users_header = tk.Frame(panel, bg = BG_PANEL)
+        users_header.pack(fill = "x", padx = 10, pady = (14, 4))
+        tk.Label(users_header, text = "USERS ONLINE", font = FONT_SMALL,
+                 bg = BG_PANEL, fg = TEXT_SEC).pack(side = "left")
+        styled_button(users_header, "<=>", self._refresh_users, 
+                      accent = False, small = True).pack(side = "right")
+        
+        user_frame = tk.Frame(panel, bg = BG_INPUT, padx = 1, pady = 1)
+        user_frame.pack(fill = "x", padx = 10)
+        self.users_list = tk.Listbox(
+            user_frame, bg = BG_INPUT, fg=TEXT_PRI, selectbackground = ACCENT,
+            selectforeground = BG_DEEP, font = FONT_BODY, relief = "flat", 
+            bd = 0, height = 7, activestyle = "none"
+        )
+        
+        self.users_list.pack(fill = "x")
+        self.users_list.bind("<<ListboxSelect>>", self._on_user_select)
+        
+        tk.Frame(panel, bg = DIVIDER, height = 1).pack(fill = "x", padx = 10, pady = 12)
+        
+        grp_header = tk.Frame(panel, bg = BG_PANEL)
+        grp_header.pack(fill = "x", padx = 10, pady = (0, 4))
+        tk.Label(grp_header, text = "GROUPS", font = FONT_SMALL, 
+                 bg = BG_PANEL, fg = TEXT_SEC).pack(side = "left")
+        
+        grp_buttons = tk.Frame(panel, bg = BG_PANEL)
+        grp_buttons.pack(fill = "x", padx = 10, pady = (0, 6))
+        styled_button(grp_buttons, "+ CREATE", self._create_group, 
+                      accent = True, small = True).pack(side = "left", padx = (0, 4))
+        styled_button(grp_buttons, "-> JOIN", self._join_group, 
+                      accent = False, small = True).pack(side = "left")
+        
+        group_frame = tk.Frame(panel, bg = BG_INPUT, padx = 1, pady = 1)
+        group_frame.pack(fill = "x", padx = 10)
+        self.groups_list = tk.Listbox(
+            group_frame, bg = BG_INPUT, fg = AMBER
+            selectbackground = ACCENT, selectforeground = BG_DEEP,
+            font = FONT_BODY, relief = "flat", bd = 0,
+            height = 7, activestyle = "none"
+        )
+        
+        self.groups_list.pack(fill = "x")
+        self.groups_list.bind("<<ListboxSelect>>", self._on_group_select)
+        
+        tk.Frame(panel, bg = DIVIDER, height = 1).pack(fill = "x", padx = 10, pady = 12)
+        
+        styled_button(panel, "DISCONNECT", self._disconnect, accent = False, small = True).pack(padx = 10, anchor = "w")
+        
+        tk.Frame(parent, bg = DIVIDER, width = 1).pack(side = "left", fill = "y")
+        
+    def _build_chat_area(self, parent):
+        right = tk.Frame(parent, bg = BG_DEEP)
+        right.pack(side = "left", fill = "both", expand = True)
+        
+        history_frame = tk.Frame(right, bg = BG_DEEP)
+        history_frame.pack(fill = "both", expand = True, padx = 12, pady = (10, 0))
+        
+        self.chat_display = scrolledtext.ScrolledText(
+            history_frame,
+            bg = BG_DEEP, fg = TEXT_PRI,
+            font = FONT_BODY, relief = "flat", bd = 0,
+            state = "disabled", wrap = "word",
+            insertbackground = ACCENT
+        )
+        
+        self.chat_display.pack(fill = "both", expand = True)
+        
+        self.chat_display.tag_config("sender_self", 
+                                     foreground = ACCENT,
+                                     font = ("Courier New", 10, "bold"))
+        self.chat_display.tag_config("sender_other", 
+                                     foreground = GREEN,
+                                     font = ("Courier New", 10, "bold"))
+        self.chat_display.tag_config("sender_system", 
+                                     foreground = AMBER,
+                                     font = ("Courier New", 10, "bold"))
+        self.chat_display.tag_config("timestamp", 
+                                     foreground = TEXT_DIM,
+                                     font = ("Courier New", 9))
+        self.chat_display.tag_config("body_text", 
+                                     foreground = TEXT_PRI,
+                                     font = FONT_BODY)
+        self.chat_display.tag_config("error_text", 
+                                     foreground = RED,
+                                     font = FONT_SMALL)
+        
+        tk.Frame(right, bg = DIVIDER, height = 1).pack(fill = "x", padx = 12, pady = (8, 0))
+        
+        input_bar = tk.Frame(right, bg = BG_PANEL, pady = 10)
+        input_bar.pack(fill = "x", padx = 12, pady = (0, 10))
+        
+        styled_button(input_bar, "/", self._attach_file, 
+                      accent = False, small = True).pack(side = "left", padx = (0, 6))
+        
+        entry_wrap = tk.Frame(input_bar, bg = ACCENT, padx = 1, pady = 1)
+        entry_wrap.pack(side = "left", fill = "x", expand = True, padx = (0, 8))
+        self.msg_entry = tk.Text(
+            entry_wrap, bg = BG_INPUT, fg = TEXT_PRI,
+            insertbackground = ACCENT, relief = "flat", bd = 0,
+            font = FONT_INPUT, height = 2, wrap = "word"
+        )
+        
+        self.msg_entry.pack(fill = "both")
+        self.msg_entry.bind("<Return>", self._on_return_key)
+        self.msg_entry.bind("<Shift-Return>", lambda e: None)
+        
+        styled_button(input_bar, "SEND >", self._send_message).pack(side = "left")
+        
+#event handlers
+    def _on_return_key(self, event):
+        
+    def _on_user_select(self, event):
+        
+    def _on_group_select(self, event):
+        
 
 class InputDialog(tk.TopLevel):
     
