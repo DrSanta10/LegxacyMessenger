@@ -163,6 +163,38 @@ class ChatScreen(tk.Frame):
         self.current_type = None
         self.chat_hisotires = {}
         self._build()
+        
+    def _build(self):
+        self._build_top_bar()
+        
+        body = tk.Frame(self, bg = BG_DEEP)
+        body.pack(fill = "both", expand = True)
+        
+        self._build_left_panel(body)
+        self._build_chat_area(body)
+        
+    def _build_top_bar(self):
+        bar = tk.Frame(self, bg =BG_PANEL, height = 44)
+        bar.pack(fill = "x")
+        bar.pack_propagate(False)
+        
+        tk.Label(bar, text = "LEGXACY", font = ("Courier New", 13, "bold"), 
+                 bg = BG_PANEL, fg = ACCENT).pack(side = "left", padx = (16, 2), pady = 10)
+        tk.Label(bar, text = "MESSENGER", font = ("Courier New", 9), 
+                 bg = BG_PANEL, fg = TEXT_DIM).pack(side = "left", pady = 10)
+        
+        self.char_title_var = tk.StringVar(value = "no chat selected")
+        tk.Label(bar, textvariable = self.char_title_var, 
+                 font = ("Courier New", 11, "bold"), 
+                 bg = BG_PANEL, fg = TEXT_PRI).pack(side = "left", padx = 30)
+        
+        tk.Label(bar, text = f"{self.username} ", font = FONT_SMALL,
+                 bg = BG_PANEL, fg = TEXT_SEC).pack(side = "right", padx = (0, 4))
+        
+        self.status_dot = tk.Label(bar, text = "•", font = ("Courier New", 14), bg = BG_PANEL, fg = GREEN)
+        self.status_dot.pack(side = "right", padx = (0, 12))
+        
+        tk.Frame(self, bg = ACCENT, height = 2).pack(fill = "x")
     
 
 class InputDialog(tk.TopLevel):
