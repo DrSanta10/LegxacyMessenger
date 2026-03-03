@@ -179,4 +179,8 @@ def validate(parsed):
     return True, ""
 
 if __name__ == "__main__":
-    
+    #Test 1
+    msg = build_message("LOGIN", "/server", headers = {"From": "ethan"})
+    p = parse_message(msg)
+    assert p["command"] == "LOGIN" and p["headers"]["From"] == "ethan"
+    print("[PASS] Test 1: LOGIN build + parse")
