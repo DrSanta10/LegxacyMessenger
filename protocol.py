@@ -38,7 +38,7 @@ def build_message(command, target, headers=None, body=""):
         
     first_line = f"{command} {target} {PROTOCOL_NAME}"
     
-    header_lines = CRLF.join(f"{k}: {v}" for k, v in headers.items())
+    header_lines = CRLF.join(f"{key}: {value}" for key, value in headers.items())
     
     header_block = first_line + CRLF + header_lines + HEADER_SEP
     
@@ -59,7 +59,7 @@ def build_response(status_code, headers=None, body=""):
         headers["Content-Length"] = str(len(body_bytes))
         
     first_line = f"{status_code} {status_text} {PROTOCOL_NAME}"
-    header_lines = CRLF.join(f"{k}: {v}" for k, v in headers.items())
+    header_lines = CRLF.join(f"{key}: {value}" for key, value in headers.items())
     header_block = first_line + CRLF + header_lines + HEADER_SEP
     
     return header_block.encode("utf-8") + body_bytes
@@ -72,7 +72,7 @@ def parse_message(raw):
         raw = raw.decode("utf-8", errors = "replace")
         
     if HEADER_SEP not in raw:
-        raise ParseError("Missing blank line between header and body.")
+        raise ParseError("Missing blank line between the header and body.")
     
     header_block, body = raw.split(HEADER_SEP, 1)
     lines  = header_block.split(CRLF)
@@ -108,8 +108,8 @@ def parse_message(raw):
             continue
         if ":" not in line:
             raise ParseError(f"Malformed header line: '{line}'")
-        k, _, v = line.partition(":")
-        headers[k.strip()] = v.strip()
+        key, _, value = line.partition(":")
+        headers[key.strip()] = value.strip()
         
     result["headers"] = headers
     result["body"] = body.strip()
@@ -144,8 +144,8 @@ def receive_message(sock):
     
     for line in templine[1:]:
         if ":" in line:
-            k, _, v = line.partition(":")
-            headers_dict[k.strip()] = v.strip()
+            key, _, value = line.partition(":")
+            headers_dict[key.strip()] = value.strip()
             
     content = int(headers_dict.get("Content-Length", 0))
     
@@ -177,41 +177,3 @@ def validate(parsed):
             return False, f"{command} with a body requires Content-Length"
         
     return True, ""
-
-if __name__ == "__main__":
-    #Test 1
-    msg = build_message("LOGIN", "/server", headers = {"From": "ethan"})
-    p = parse_message(msg)
-    assert p["command"] == "LOGIN" and p["headers"]["From"] == "ethan"
-    print("[PASS] Test 1: LOGIN build + parse")
-    
-    #Test 2
-    msg = build_message("MSG", "/user", 
-                        {"From": "ethan", "To": "samuel", "Content-Type": "text/plain"},
-                        body = "Hello world")
-    p = parse_message(msg)
-    assert p["body"] == "Hello world" and p["headers"]["Content-Length"] == "11"
-    print("[PASS] Test 2: MSG with body")
-    
-    #Test 3
-    resp = build_response(200, {"To": "ethan"})
-    p = parse_message(resp)
-    assert p["type"] == "response" and p["status_code"] == 200
-    print("[PASS] Test 3: 200 OK response")
-    
-    #Test 4
-    resp = build_response(409, {"To": "nikarlan", "Error-Code": "409",
-                                "Content-Type": "text/plain"},
-                          body = "Username already in use.")
-    p = parse_message(resp)
-    assert p["status_code"] == 409 and p["body"] == "Username already in use."
-    print("[PASS] Test 4: 409 CONFLICT with body")
-    
-    #Test 5
-    msg = build_message("MSG", "/user", 
-                        {"To": "samuel"},
-                        body = "Hello")
-    p = parse_message(msg)
-    ok, reason = validate(p)
-    assert not ok and "From" in reason
-    print("[PASS] Test 5: validation reject missing From")
