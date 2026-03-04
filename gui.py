@@ -369,7 +369,7 @@ class ChatScreen(tk.Frame):
         input_bar = tk.Frame(right, bg = BG_PANEL, pady = 10)
         input_bar.pack(fill = "x", padx = 10, pady = (0, 10))
         
-        make_button(input_bar, "/", self._attach_file, 
+        make_button(input_bar, "/", self._attach, 
                       accent = False, small = True).pack(side = "left", padx = (0, 8))
         
         entry_wrap = tk.Frame(input_bar, bg = ACCENT, padx = 1, pady = 1)
@@ -384,7 +384,7 @@ class ChatScreen(tk.Frame):
         self.msg_entry.bind("<Return>", self._on_return_key)
         self.msg_entry.bind("<Shift-Return>", lambda e: None)
     
-        make_button(input_bar, "SEND", self._send_message).pack(side = "left")
+        make_button(input_bar, "SEND", self._send).pack(side = "left")
         
         
     
