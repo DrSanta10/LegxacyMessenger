@@ -5,7 +5,7 @@ import datetime
 from protocol import receive_message, send_response, send_message, validate, ParseError
 
 HOST = "0.0.0.0"
-DEFAULT = 5000
+PORT = 5000
 MAX = 50
 
 lock = threading.Lock()
@@ -60,7 +60,7 @@ def handle_login(connection, parsed, address):
     log("LOGIN", f"'{username}' connected from {address}.")
     return username
 
-def handle_logout(connection, parsed, username):
+def handle_logout(connection, username):
     clean(username)
     send_response(connection, 200, {"To": username})
     log("LOGOUT", f"'{username}' logged out")
@@ -90,7 +90,7 @@ def handle_msg(connection, parsed, username):
                     delivered += 1
                     
         send_response(connection, 200, {"To": username})
-        log("MSG", f"'{username}' > group '{group_id}' ({delivered} delivered)")
+        log("MSG", f"'{username}' -> group '{group_id}' ({delivered} delivered)")
         
     elif to:
         with lock:
@@ -98,7 +98,7 @@ def handle_msg(connection, parsed, username):
             
         if ok:
             send_response(connection, 200, {"To": username})
-            log("MSG", f"'{username}' > '{to}'")
+            log("MSG", f"'{username}' -> '{to}'")
         else:
             send_response(connection, 404, {"To": username}, 
                           body = f"User '{to}' is not online.")
@@ -220,7 +220,7 @@ def client_thread(connection, address):
             pass
 
 
-def server(host = HOST, port = DEFAULT):
+def server(host = HOST, port = PORT):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((host, port))
@@ -242,5 +242,5 @@ def server(host = HOST, port = DEFAULT):
         srv.close()
         
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
     server(port = port)
