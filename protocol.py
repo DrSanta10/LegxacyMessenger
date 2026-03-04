@@ -72,19 +72,19 @@ def parse_message(raw):
         raw = raw.decode("utf-8", errors = "replace")
         
     if HEADER_SEP not in raw:
-        raise ParseError("Malformed message: missing blank line between header and body.")
+        raise ParseError("Missing blank line between header and body.")
     
     header_block, body = raw.split(HEADER_SEP, 1)
     lines  = header_block.split(CRLF)
     
     if not lines:
-        raise ParseError("Malformed message: empty header block.")
+        raise ParseError("Empty header block.")
     
-    first_line = lines[0].strip()
-    parts = first_line.split(" ", 2)
+    #first_line = lines[0].strip()
+    parts = lines[0].strip().split(" ", 2)
     
     if len(parts) < 2:
-        raise ParseError(f"Malformed first line: '{first_line}'.")
+        raise ParseError(f"Malformed first line: '{lines[0]}'")
     
     result = {}
     if parts[0].isdigit():
@@ -107,9 +107,9 @@ def parse_message(raw):
         if not line:
             continue
         if ":" not in line:
-            raise ParseError(f"Malformed header line: '{line}'.")
-        key, _, value = line.partition(":")
-        headers[key.strip()] = value.strip()
+            raise ParseError(f"Malformed header line: '{line}'")
+        k, _, v = line.partition(":")
+        headers[k.strip()] = v.strip()
         
     result["headers"] = headers
     result["body"] = body.strip()
@@ -117,19 +117,19 @@ def parse_message(raw):
     return result
 
 
-def send_message(socket, command, target, headers = None, body = ""):
+def send_message(sock, command, target, headers = None, body = ""):
     data = build_message(command, target, headers, body)
-    socket.sendall(data)
+    sock.sendall(data)
     
-def send_response(socket, status, headers = None, body = ""):
-    data = build_message(status, headers, body)
-    socket.sendall(data)
+def send_response(sock, status, headers = None, body = ""):
+    data = build_response(status, headers, body)
+    sock.sendall(data)
     
-def receive_message(socket):
+def receive_message(sock):
     raw = b""
     
     while HEADER_SEP.encode("utf-8") not in raw:
-        chunk = socket.recv(BUFFER_SIZE)
+        chunk = sock.recv(BUFFER_SIZE)
         
         if not chunk:
             raise ConnectionError("Socket closed before full message was received.")
@@ -151,7 +151,7 @@ def receive_message(socket):
     
     while len(body) < content:
         needed = content - len(body)
-        chunk = socket.recv(min(needed, BUFFER_SIZE))
+        chunk = sock.recv(min(needed, BUFFER_SIZE))
         if not chunk:
             raise ConnectionError("Socket closed mid-body.")
         body += chunk
@@ -184,3 +184,34 @@ if __name__ == "__main__":
     p = parse_message(msg)
     assert p["command"] == "LOGIN" and p["headers"]["From"] == "ethan"
     print("[PASS] Test 1: LOGIN build + parse")
+    
+    #Test 2
+    msg = build_message("MSG", "/user", 
+                        {"From": "ethan", "To": "samuel", "Content-Type": "text/plain"},
+                        body = "Hello world")
+    p = parse_message(msg)
+    assert p["body"] == "Hello world" and p["headers"]["Content-Length"] == "11"
+    print("[PASS] Test 2: MSG with body")
+    
+    #Test 3
+    resp = build_response(200, {"To": "ethan"})
+    p = parse_message(resp)
+    assert p["type"] == "response" and p["status_code"] == 200
+    print("[PASS] Test 3: 200 OK response")
+    
+    #Test 4
+    resp = build_response(409, {"To": "nikarlan", "Error-Code": "409",
+                                "Content-Type": "text/plain"},
+                          body = "Username already in use.")
+    p = parse_message(resp)
+    assert p["status_code"] == 409 and p["body"] == "Username already in use."
+    print("[PASS] Test 4: 409 CONFLICT with body")
+    
+    #Test 5
+    msg = build_message("MSG", "/user", 
+                        {"To": "samuel"},
+                        body = "Hello")
+    p = parse_message(msg)
+    ok, reason = validate(p)
+    assert not ok and "From" in reason
+    print("[PASS] Test 5: validation reject missing From")

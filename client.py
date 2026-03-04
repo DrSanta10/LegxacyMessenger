@@ -33,7 +33,7 @@ class NetworkClient:
             
             if resp["status_code"] == 200:
                 self.running = True
-                threading.Thread(target = self.receive_loop, daemon = True).start()
+                threading.Thread(target = self.receive, daemon = True).start()
                 return True, ""
             else:
                 err = resp.get("body") or f"Login failed ({resp['status_code']})"
@@ -146,7 +146,7 @@ def now():
  
 def terminal():
     host = input(f"Server host [{HOST}]: ").strip() or HOST
-    port_str = input(f"Server port [{HOST}]: ").strip()
+    port_str = input(f"Server port [{PORT}]: ").strip()
     port = int(port_str) if port_str else PORT
     username = input("Username: ").strip()
     password = input("Password: ").strip()
