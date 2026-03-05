@@ -60,7 +60,7 @@ def handle_login(connection, parsed, address):
     log("LOGIN", f"'{username}' connected from {address}.")
     return username
 
-def handle_logout(connection, username):
+def handle_logout(connection, parsed, username):
     clean(username)
     send_response(connection, 200, {"To": username})
     log("LOGOUT", f"'{username}' logged out")
