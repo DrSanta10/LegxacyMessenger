@@ -3,11 +3,13 @@ from tkinter import scrolledtext, filedialog, messagebox
 import datetime
 import os
 
-#try:
-#    from protocol import send_message, receive_message, build_message, PROTOCOL_NAME
-#    PROTOCOL_AVAILABLE = True
-#except ImportError:
-#    PROTOCOL_AVAILABLE = False
+from client import NetworkClient
+
+try:
+    from protocol import send_message, receive_message, build_message, PROTOCOL_NAME
+    PROTOCOL_AVAILABLE = True
+except ImportError:
+    PROTOCOL_AVAILABLE = False
     
 
 #Constants
@@ -32,8 +34,8 @@ FONT_BODY = ("Comfortaa", 10)
 FONT_SMALL = ("Comfortaa", 9)
 FONT_INPUT = ("Comfortaa", 11)
 
-#DEFAULT_HOST = "127.0.0.1"
-#DEFAULT_PORT = 5000
+HOST = "127.0.0.1"
+PORT = 5000
 
 
 def make_button(parent, text, command, accent = True, small = False):
@@ -97,14 +99,14 @@ class InputDialog(tk.Toplevel):
         self.entry = make_entry(wrap)
         self.entry.pack(fill = "x")
         self.entry.focus()
-        self.entry.bind("<Return>", lambda e: self._ok())
+        self.entry.bind("<Return>", lambda e: self.ok())
 
         row = tk.Frame(self, bg = BG_PANEL)
         row.pack(pady = 12)
-        make_button(row, "OK", self._ok, accent = True).pack(side = "left", padx = 6)
+        make_button(row, "OK", self.ok, accent = True).pack(side = "left", padx = 6)
         make_button(row, "Cancel", self.destroy, accent = False).pack(side = "left")
         
-    def _ok(self):
+    def ok(self):
         self.result = self.entry.get().strip()
         self.destroy()
 
@@ -113,9 +115,9 @@ class LoginScreen(tk.Frame):
     def __init__(self, master, on_login):
         super().__init__(master, bg = BG_DEEP)
         self.on_login = on_login
-        self._build()
+        self.build()
         
-    def _build(self):
+    def build(self):
         outer = tk.Frame(self, bg = BG_DEEP)
         outer.place(relx = 0.5, rely = 0.5, anchor = "center")
         
@@ -155,14 +157,14 @@ class LoginScreen(tk.Frame):
         tk.Label(card, textvariable = self.status,
                  font = FONT_SMALL, bg = BG_PANEL, fg = RED).pack(pady = (14, 2))
     
-        make_button(card, " CONNECT ", self._login).pack(pady = 8, ipadx = 10)
+        make_button(card, " CONNECT ", self.login).pack(pady = 8, ipadx = 10)
         
-        self.entry_pass.bind("<Return>", lambda e: self._login())
+        self.entry_pass.bind("<Return>", lambda e: self.login())
         self.entry_pass.bind("<Return>", lambda e: self.entry_pass.focus())
     
         tk.Frame(outer, bg = ACCENT_DIM, height = 2, width = 400).pack(fill = "x")
     
-    def _login(self):
+    def login(self):
         username = self.entry_user.get().strip()
         password = self.entry_pass.get().strip()
         if not username:
@@ -239,21 +241,21 @@ class ChatScreen(tk.Frame):
         self.current_chat = None
         self.current_type = None
         self.chat_hisotires = {}
-        self._build()
-        self._load_demo_data()
+        self.build()
+        #self._load_demo_data()
         
-    def _build(self):
-        self._build_topbar()
+    def build(self):
+        self.build_topbar()
         
         body = tk.Frame(self, bg = BG_DEEP)
         body.pack(fill = "both", expand = True)
         
-        self._build_sidebar(body)
+        self.build_sidebar(body)
         tk.Frame(body, bg = DIVIDER, width = 1).pack(side = "left", fill = "y")
         
-        self._build_chat_area(body)
+        self.build_chat_area(body)
         
-    def _build_topbar(self):
+    def build_topbar(self):
         bar = tk.Frame(self, bg =BG_PANEL, height = 46)
         bar.pack(fill = "x")
         bar.pack_propagate(False)
@@ -278,7 +280,7 @@ class ChatScreen(tk.Frame):
         
         tk.Frame(self, bg = ACCENT, height = 2).pack(fill = "x")
         
-    def _build_sidebar(self, parent):
+    def build_sidebar(self, parent):
         side = tk.Frame(parent, bg = BG_PANEL, width = 220)
         side.pack(side = "left", fill = "y")
         side.pack_propagate(False)
@@ -296,7 +298,7 @@ class ChatScreen(tk.Frame):
         )
         
         self.users_list.pack(fill = "x")
-        self.users_list.bind("<<ListboxSelect>>", self._on_user_select)
+        self.users_list.bind("<<ListboxSelect>>", self.on_user_select)
         
         tk.Frame(side, bg = DIVIDER, height = 1).pack(fill = "x", padx = 12, pady = 14)
         
@@ -305,9 +307,9 @@ class ChatScreen(tk.Frame):
         
         grp_buttons = tk.Frame(side, bg = BG_PANEL)
         grp_buttons.pack(fill = "x", padx = 12, pady = (6, 6))
-        make_button(grp_buttons, "+ CREATE", self._create_group, 
+        make_button(grp_buttons, "+ CREATE", self.create_group, 
                           accent = True, small = True).pack(side = "left", padx = (0, 6))
-        make_button(grp_buttons, "> JOIN", self._join_group, 
+        make_button(grp_buttons, "> JOIN", self.join_group, 
                           accent = False, small = True).pack(side = "left")
         
         wrap2 = tk.Frame(side, bg = BG_INPUT, padx = 1, pady = 1)
@@ -320,16 +322,16 @@ class ChatScreen(tk.Frame):
             )
         
         self.groups_list.pack(fill = "x")
-        self.groups_list.bind("<<ListboxSelect>>", self._on_group_select)
+        self.groups_list.bind("<<ListboxSelect>>", self.on_group_select)
         
         tk.Frame(side, bg = DIVIDER, height = 1).pack(fill = "x", padx = 12, pady = 14)
         
-        make_button(side, "DISCONNECT", self._disconnect, 
+        make_button(side, "DISCONNECT", self.disconnect, 
                     accent = False, small = True).pack(padx = 12, anchor = "w")
         
         #tk.Frame(parent, bg = DIVIDER, width = 1).pack(side = "left", fill = "y")
         
-    def _build_chat_area(self, parent):
+    def build_chat_area(self, parent):
         right = tk.Frame(parent, bg = BG_DEEP)
         right.pack(side = "left", fill = "both", expand = True)
         
@@ -369,7 +371,7 @@ class ChatScreen(tk.Frame):
         input_bar = tk.Frame(right, bg = BG_PANEL, pady = 10)
         input_bar.pack(fill = "x", padx = 10, pady = (0, 10))
         
-        make_button(input_bar, "/", self._attach, 
+        make_button(input_bar, "/", self.attach, 
                       accent = False, small = True).pack(side = "left", padx = (0, 8))
         
         entry_wrap = tk.Frame(input_bar, bg = ACCENT, padx = 1, pady = 1)
@@ -381,7 +383,7 @@ class ChatScreen(tk.Frame):
         )
         
         self.msg_entry.pack(fill = "both")
-        self.msg_entry.bind("<Return>", self._on_return_key)
+        self.msg_entry.bind("<Return>", self.on_return_key)
         self.msg_entry.bind("<Shift-Return>", lambda e: None)
     
         make_button(input_bar, "SEND", self._send).pack(side = "left")
@@ -390,37 +392,37 @@ class ChatScreen(tk.Frame):
     
         
 #event handlers
-    def _on_return_key(self, event):
+    def on_return_key(self, event):
         if not (event.state & 0x1):
             self._send()
             return "break"
     
-    def _on_user_select(self, event):
+    def on_user_select(self, event):
         sel = self.users_lb.curselection()
         if not sel:
             return
         name = self.users_lb.get(sel[0]).replace("* ", "").strip()
         self.groups_lb.selection_clear(0, "end")
-        self._open_chat(name, "user")
+        self.open_chat(name, "user")
         
-    def _on_group_select(self, event):
+    def on_group_select(self, event):
         sel = self.groups_lb.curselection()
         if not sel:
             return
         name = self.groups_lb.get(sel[0]).replace("# ", "").strip()
         self.users_lb.selection_clear(0, "end")
-        self._open_chat(name, "group")
+        self.open_chat(name, "group")
         
-    def _open_chat(self, name, chat_type):
+    def open_chat(self, name, chat_type):
         self.current_chat = name
         self.current_type = chat_type
         prefix = "#" if chat_type == "group" else "@"
         self.chat_title.set("[ " + prefix + name + " ]")
-        self._redraw()
+        self.redraw()
         self.msg_box.focus()
         
     
-    def _redraw(self):
+    def redraw(self):
         self.display.config(state="normal")
         self.display.delete("1.0", "end")
         for m in self.histories.get(self.current_chat, []):
@@ -428,7 +430,7 @@ class ChatScreen(tk.Frame):
         self.display.config(state="disabled")
         self.display.see("end")
 
-    def _insert(self, m):
+    def insert(self, m):
         sender = m["from"]
         if sender == self.username:
             tag = "self_name"
@@ -440,7 +442,7 @@ class ChatScreen(tk.Frame):
         self.display.insert("end", "  " + m.get("ts", "") + "\n", "ts")
         self.display.insert("end", "  " + m["body"] + "\n", "msg")
 
-    def _add_message(self, sender, body):
+    def add_message(self, sender, body):
         if not self.current_chat:
             return
         ts    = datetime.datetime.now().strftime("%H:%M")
@@ -451,7 +453,7 @@ class ChatScreen(tk.Frame):
         self.display.config(state="disabled")
         self.display.see("end")
 
-    def _send(self):
+    def send(self):
         if not self.current_chat:
             messagebox.showinfo("No chat", "Select a user or group first.")
             return
@@ -461,7 +463,7 @@ class ChatScreen(tk.Frame):
         self.msg_box.delete("1.0", "end")
         self._add_message(self.username, text)
 
-    def _attach(self):
+    def attach(self):
         path = filedialog.askopenfilename(
             title="Attach file",
             filetypes=[("Images", "*.png *.jpg *.jpeg"),
@@ -472,7 +474,7 @@ class ChatScreen(tk.Frame):
         if path:
             self._add_message("system", "[Attached: " + os.path.basename(path) + "]")
 
-    def _create_group(self):
+    def create_group(self):
         d = InputDialog(self, "Create Group", "Group name:")
         self.wait_window(d)
         if d.result:
@@ -480,7 +482,7 @@ class ChatScreen(tk.Frame):
             self._open_chat(d.result, "group")
             self._add_message("system", "Group '" + d.result + "' created.")
 
-    def _join_group(self):
+    def join_group(self):
         d = InputDialog(self, "Join Group", "Group name:")
         self.wait_window(d)
         if d.result:
@@ -488,12 +490,12 @@ class ChatScreen(tk.Frame):
             self._open_chat(d.result, "group")
             self._add_message("system", "Joined group '" + d.result + "'.")
 
-    def _add_to_groups(self, name):
+    def add_to_groups(self, name):
         existing = list(self.groups_lb.get(0, "end"))
         if "# " + name not in existing:
             self.groups_lb.insert("end", "# " + name)
 
-    def _disconnect(self):
+    def disconnect(self):
         if messagebox.askyesno("Disconnect", "Return to login screen?"):
             self.master.show_login()
 
@@ -572,10 +574,10 @@ class App(tk.Tk):
     def show_login(self):
         if self.current:
             self.current.destroy()
-        self.current = LoginScreen(self, on_login = self._do_login)
+        self.current = LoginScreen(self, on_login = self.do_login)
         self.current.pack(fill = "both", expand = True)
 
-    def _do_login(self, username):
+    def do_login(self, username):
         if self.current:
             self.current.destroy()
         self.current = ChatScreen(self, username)
