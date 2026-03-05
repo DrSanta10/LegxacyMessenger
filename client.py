@@ -4,7 +4,7 @@ import sys
 import datetime
 from protocol import send_message, receive_message, ParseError
 
-HOST = "127.0.0.1"
+HOST = "100.87.127.9"
 PORT = 5000
 
 class NetworkClient:
