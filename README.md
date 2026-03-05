@@ -10,6 +10,7 @@ Terminal procedure:
 
 General message structure:
 /(command) (client_name) (body)
+/(command) (group_name) (body)
 
 Terminal navigation:
 '/msg' to send a message
