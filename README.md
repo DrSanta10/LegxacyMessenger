@@ -19,3 +19,6 @@ Terminal navigation:
 '/join' to join a group
 '/leave' to leave a group
 '/quit' to quit the chat system
+
+Server termination:
+Use the command ctrl/cmnd + C to shut down the server
