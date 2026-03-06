@@ -9,11 +9,12 @@ PORT = 5000
 
 class NetworkClient:
     def __init__(self, message = None, notify = None,
-                 error = None, p2p = None):
+                 error = None, p2p = None, users = None):
         self.message = message or (lambda *a: None)
         self.notify = notify or (lambda *a: None)
         self.error = error or (lambda *a: None)
         self.p2p = p2p or (lambda *a: None)
+        self.users = users or (lambda *a: None)
         self.sock = None
         self.username = None
         self.running = False
@@ -90,6 +91,14 @@ class NetworkClient:
         self.send("LEAVE_GROUP", "/server", 
                    headers = {"From": self.username, "Group-ID": group})
         
+    def list_users(self):
+        self.send("LIST_USERS", "/server", 
+                  headers = {"From": self.username})
+
+    def list_groups(self):
+        self.send("LIST_GROUPS", "/server", 
+                  headers = {"From": self.username})
+        
     def ping(self):
         self.send("PING", "/server", headers = {"From": self.username})
         
@@ -125,7 +134,11 @@ class NetworkClient:
 
                 elif msg["type"] == "response":
                     code = msg["status_code"]
-                    if code not in (200, 201):
+                    if code in (200, 201):
+                        if body and headers.get("Content-Type") == "text/plain":
+                            names = [n.strip() for n in body.split(",") if n.strip()]
+                            self.users(names)
+                    else:
                         self.error(body or f"Server error {code}")
                     
             except ConnectionError:
@@ -161,6 +174,10 @@ def terminal():
         
     def error(msg):
         print(f"\n [ERROR] {msg}")
+        print("> ", end = "", flush = True)
+        
+    def users(names):
+        print(f"\n [USERS] Online: {', '.join(names) if names else '(none)'}")
         print("> ", end = "", flush = True)
         
     client = NetworkClient(message = message, notify = notify, error = error)
@@ -212,6 +229,8 @@ def terminal():
                 print(" Usage: /leave <group_name>")
             else:
                 client.leave_group(parts[1])
+        elif cmd == "/users":
+            client.list_users()
         elif cmd == "/quit":
             break
         else:
