@@ -1,7 +1,3 @@
-"""
-client_gui.py — LegxacyMessenger GUI Client
-"""
-
 import tkinter as tk
 from tkinter import scrolledtext, filedialog, messagebox
 import datetime
