@@ -58,6 +58,10 @@ def handle_login(connection, parsed, address):
         
     send_response(connection, 200, {"To": username})
     log("LOGIN", f"'{username}' connected from {address}.")
+    
+    with lock:
+        log("SERVER", f"Active sessions: {len(sessions)}")
+    
     return username
 
 def handle_logout(connection, parsed, username):
@@ -153,6 +157,9 @@ def handle_join_group(connection, parsed, username):
     
     log("GROUP", f"'{username}' joined '{name}'")
     
+def handle_leave_group(connection, parsed, username):
+    return
+    
     
 def handle_ping(connection, parsed, username):
     send_response(connection, 200, {"To": username})
@@ -163,6 +170,7 @@ HANDLERS = {
     "MSG": handle_msg,
     "CREATE_GROUP": handle_create_group,
     "JOIN_GROUP": handle_join_group,
+    "LEAVE_GROUP": handle_leave_group,
     "PING": handle_ping,
 }
 
@@ -234,8 +242,8 @@ def server(host = HOST, port = PORT):
             connection, address = srv.accept()
             t = threading.Thread(target=client_thread, args=(connection, address), daemon=True)
             t.start()
-            with lock:
-                log("SERVER", f"Active sessions: {len(sessions)}")
+            #with lock:
+            #   log("SERVER", f"Active sessions: {len(sessions)}")
     except KeyboardInterrupt:
         log("SERVER", "Shutting down.")
     finally:
