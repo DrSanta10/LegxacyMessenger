@@ -152,7 +152,7 @@ def terminal():
     password = input("Password: ").strip()
     
     def message(chat, sender, body, time):
-        print(f"\n [{time}] {sender} -> {chat}: {body}")
+        print(f"\n [{time}] {sender} -> {username}: {body}")
         print("> ", end = "", flush = True)
         
     def notify(group, body):
