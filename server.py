@@ -137,6 +137,12 @@ def handle_join_group(connection, parsed, username):
             send_response(connection, 404, {"To": username}, 
                           body = f"Group '{name}' does not exists.")
             return
+        
+        if username in groups[name]:
+            send_response(connection, 409, {"To": username}, 
+                          body = f"You are already a member of '{name}'")
+            return
+        
         groups[name].add(username)
         members = list(groups[name])
         
@@ -158,8 +164,46 @@ def handle_join_group(connection, parsed, username):
     log("GROUP", f"'{username}' joined '{name}'")
     
 def handle_leave_group(connection, parsed, username):
-    return
+    name = parsed["headers"].get("Group-ID", "").strip()
     
+    if not name:
+        send_response(connection, 400, {"To": username}, body = "Group-ID cannot be empty.")
+        return
+    
+    with lock:
+        if name not in groups:
+            send_response(connection, 404, {"To": username}, 
+                          body = f"Group '{name}' does not exists.")
+            return
+        
+        if username not in groups[name]:
+            send_response(connection, 401, {"To": username},
+                          body = f"You are not a member of '{name}'.")
+            return
+        
+        groups[name].discard(username)
+        if not groups[name]:
+            del groups[name]
+            log("GROUP", f"Group '{name}' deleted (no members left)")
+        
+    send_response(connection, 200, {"To": username})
+    log("GROUP", f"'{username}' left '{name}'")
+    
+def handle_list_users(connection, parsed, username):
+    with lock:
+        online = [u for u in sessions if u != username]
+    send_response(connection, 200, 
+                  {"To": username, "Content-Type": "text/plain"},
+                  body = ",".join(online))
+    log("LIST", f"'{username}' requested users ({len(online)} online)")
+
+def handle_list_groups(connection, parsed, username):
+    with lock:
+        names = list(groups.keys())
+    send_response(connection, 200, 
+                  {"To": username, "Content-Type": "text/plain"},
+                  body = ",".join(names))
+    log("LIST", f"'{username}' requested users ({len(names)} groups)")
     
 def handle_ping(connection, parsed, username):
     send_response(connection, 200, {"To": username})
@@ -171,6 +215,8 @@ HANDLERS = {
     "CREATE_GROUP": handle_create_group,
     "JOIN_GROUP": handle_join_group,
     "LEAVE_GROUP": handle_leave_group,
+    "LIST_USERS": handle_list_users,
+    "LIST_GROUPS": handle_list_groups,
     "PING": handle_ping,
 }
 
