@@ -60,6 +60,7 @@ class InputDialog(tk.Toplevel):
         self.entry.bind("<Return>", lambda e: self._ok())
         row = tk.Frame(self, bg=BG_PANEL)
         row.pack(pady=12)
+        
         make_button(row, "OK",     self._ok,     accent=True ).pack(side="left", padx=6)
         make_button(row, "Cancel", self.destroy, accent=False).pack(side="left")
 
@@ -259,6 +260,7 @@ class ChatScreen(tk.Frame):
         self.msg_box.bind("<Shift-Return>", lambda e: None)
         make_button(bar, "SEND", self._send).pack(side="left")
 
+
     # ── Chat selection ────────────────────────────────────────────────────────
 
     def _on_user_click(self, event):
@@ -284,6 +286,7 @@ class ChatScreen(tk.Frame):
         self.chat_title.set(f"[ {prefix}{name} ]")
         self._redraw()
         self.msg_box.focus()
+
 
     # ── Display ───────────────────────────────────────────────────────────────
 
@@ -345,6 +348,7 @@ class ChatScreen(tk.Frame):
         if label not in existing and username != self.username:
             self.users_lb.insert("end", label)
 
+
     # ── Send ──────────────────────────────────────────────────────────────────
 
     def _on_enter(self, event):
@@ -378,10 +382,10 @@ class ChatScreen(tk.Frame):
         if path:
             self._add_message("system", f"[Attached: {os.path.basename(path)}]")
 
+
     # ── Sidebar actions ───────────────────────────────────────────────────────
 
     def update_users_list(self, names):
-        """Repopulate the users list from a LIST_USERS response."""
         self.users_lb.delete(0, "end")
         for name in names:
             if name != self.username:
@@ -452,7 +456,6 @@ class App(tk.Tk):
             chat.after(0, chat.show_system_message, f"  {msg}")
 
         def on_users(names):
-            # Called when LIST_USERS or LIST_GROUPS response arrives
             chat.after(0, chat.update_users_list, names)
 
         net = NetworkClient(
@@ -466,10 +469,8 @@ class App(tk.Tk):
 
         if ok:
             chat.net = net
-            # Automatically fetch online users right after login
             net.list_users()
         else:
-            # Preview mode
             for u in ["ethan", "samuel", "nikarlan"]:
                 if u != username:
                     chat.users_lb.insert("end", f"* {u}")
