@@ -3,7 +3,7 @@ import datetime
 import threading
 import os
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "legxacy.db")
+PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "legxacy - Copy.db")
 
 _local = threading.local()
 
