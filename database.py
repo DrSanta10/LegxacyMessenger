@@ -159,6 +159,30 @@ def store_message(sender, body, recipient = None, group = None, time = None):
     _conn().commit()
     
 def get_pending(username):
-    rows = _conn().execute("")
+    rows = _conn().execute("SELECT id, sender, body, timestamp FROM messages WHERE recipient = ? COLLATE NOCASE AND group_name IS NULL ORDER BY timestamp ASC",
+                           (username, )).fetchall()
+    return [dict(r) for r in rows]
+
+def delivered(username):
+    _conn().execute("UPDATE messages SET recipient = '__delivered__' WHERE recipient = ? COLLATE NOCASE AND group_name IS NULL", 
+                    (username, ))
+    _conn().commit()
     
     
+def history(user1, user2, limit=50):
+    rows = _conn().execute("""SELECT sender, body, timestamp 
+                           FROM messages 
+                           WHERE group_name IS NULL 
+                           AND ((sender = ? COLLATE NOCASE AND recipient = ? COLLATE NOCASE) 
+                           OR (sender = ? COLALTE NOCASE AND recipient = ? COLLATE NOCASE))
+                           ORDER BY timestamp DESC
+                           LIMIT ?""", (user1, user2, user2, user1, limit)).fetchall()
+    return [dict(r) for r in reversed(rows)]
+
+def group_history(group, limit = 50):
+    rows = _conn().execute("""SELECT sender, body, timestamp 
+                           FROM messages 
+                           WHERE group_name = ? COLLATE NOCASE
+                           ORDER BY timestamp DESC
+                           LIMIT ?""", (group, limit)).fetchall()
+    return [dict(r) for r in reversed(rows)]
