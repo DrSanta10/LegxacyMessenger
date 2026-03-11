@@ -24,6 +24,8 @@ STATUS = {
     500: "SERVER ERROR"
 }
 
+MAX_FILE = 50 * 1024 * 1024
+
 def build_message(command, target, headers=None, body=""):
     if headers is None:
         headers = {}
@@ -175,5 +177,8 @@ def validate(parsed):
         
         if command in {"MSG", "FILE_SEND", "MEDIA_DATA"} and "Content-Length" not in headers:
             return False, f"{command} with a body requires Content-Length"
+        
+        if command == "FILE_SEND" and "Filename" not in headers:
+            return False, "FILE_SEND requires a Filename header"
         
     return True, ""

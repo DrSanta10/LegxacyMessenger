@@ -2,6 +2,7 @@ import sqlite3
 import datetime
 import threading
 import os
+import json
 
 PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "legxacy - Copy.db")
 
@@ -157,6 +158,35 @@ def store_message(sender, body, recipient = None, group = None, time = None):
     _conn().execute("INSERT INTO messages (sender, recipient, group_name, body, timestamp) VALUES (?, ?, ?, ?, ?)",
                     (sender, recipient, group, body, time))
     _conn().commit()
+    
+
+def store_file(sender, filename, data, recipient = None, group = None, time = None):
+    if time is None:
+        time = now()
+        
+    payload = json.dumps({"_type": "file", "filename": filename, "data": data})
+    
+    _conn().execute("INSERT INTO messages (sender, recipient, group_name, body, timestamp) VALUES (?, ?, ?, ?, ?)",
+          (sender, recipient, group, payload, time))
+    _conn().commit()
+    
+def is_file_body(body):
+    if not body or not body.startswith("{"):
+        return False
+
+    try:
+        return json.loads(body).get("_type") == "file"
+    except (json.JSONDecodeError, AttributeError):
+        return False
+    
+def parse_file(body):
+    try:
+        if json.loads(body).get("_type") == "file":
+            return json.loads(body)["filename"], json.loads(body)["data"]
+    except Exception:
+        pass
+    return None, None
+    
     
 def get_pending(username):
     rows = _conn().execute("SELECT id, sender, body, timestamp FROM messages WHERE recipient = ? COLLATE NOCASE AND group_name IS NULL ORDER BY timestamp ASC",
