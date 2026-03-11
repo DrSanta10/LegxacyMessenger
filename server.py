@@ -56,15 +56,32 @@ def pending(username, connection):
     
     for msg in pend:
         try:
-            send_message(connection, "MSG", "/user", header = {
-                "From": msg["sender"],
-                "To": username,
-                "Content-Type": "text/plain",
-                "Timestamp": msg["timestamp"],
-                "Offline": "true"
-            }, body = msg["body"])
+            body = msg["body"]
+            sender = msg["sender"]
+            timestamp = msg["timestamp"]
+            
+            if db.is_file_body(body):
+                filename, data = db.parse_file(body)
+                
+                if filename and data:
+                    send_message(connection, "FILE_SEND", "/user", header = {
+                        "From": sender,
+                        "To": username,
+                        "Filename": filename,
+                        "Content-Type": "application/octet-stream",
+                        "Timestamp": timestamp,
+                        "Offline": "true"
+                    }, body = data)
+            else:
+                send_message(connection, "MSG", "/user", header = {
+                        "From": sender,
+                        "To": username,
+                        "Content-Type": "text/plain",
+                        "Timestamp": timestamp,
+                        "Offline": "true"
+                    }, body = body)
         except Exception as e:
-            log("PENDING", f"Could not deliver the queued message to '{username}': {e}")
+            log("PENDING", f"Could not deliver the queued item to '{username}': {e}")
             break
         
     db.delivered(username)
@@ -177,6 +194,53 @@ def handle_msg(connection, parsed, username):
         send_response(connection, 400, {"To": username}, 
                           body = "MSG requeires a To or Group-ID header.")
             
+
+def handle_file_send(connection, parsed, username):
+    headers = parsed["headers"]
+    group_id = headers.get("Group-ID")
+    to = headers.get("To")
+    filename = headers.get("Filename", "file")
+    data = parsed["body"]
+    timestamp = headers.get("Timestamp", now())
+    
+    if group_id:
+        members = db.get_members(group_id)
+        if members is None:
+            send_response(connection, 404, {"To": username}, body = f"Group '{group_id}' does not exist.")
+            return
+        
+        if not db.is_member(group_id, username):
+            send_response(connection, 401, {"To": username}, body = "You are not a member of this group.")
+            return
+        
+        delivered = 0
+        for member in members:
+            if member != username and forward(member, parsed):
+                delivered += 1
+                
+        send_response(connection, 200, {"To": username})
+        log("FILE", f"'{username}' -> group '{group_id}' '{filename}' " f"({delivered}/{len(members) - 1} delivered)")
+        
+    elif to:
+        with lock:
+            online = to in sessions
+            
+        if online:
+            ok = forward(to, parsed)
+            
+            if ok:
+                send_response(connection, 200, {"To": username})
+                log("FILE", f"'{username}' -> '{to}' '{filename}' (delivered)")
+            else:
+                send_response(connection, 500, {"To": username}, body = "File delivery failed.")
+        
+        else:
+            db.store_file(username, filename, data, recipient=to, time=timestamp)
+            send_response(connection, 200, {"To": username})
+            log("FILE", f"'{username}' -> '{to}' '{filename}' (queued - offline)")
+            
+    else:
+        send_response(connection, 400, {"To": username}, body = "FILE_SEND required a To or Group-ID header.")
 
 def handle_create_group(connection, parsed, username):
     name = parsed["headers"].get("Group-ID", "").strip()
@@ -305,6 +369,7 @@ def handle_ping(connection, parsed, username):
 HANDLERS = {
     "LOGOUT": handle_logout,
     "MSG": handle_msg,
+    "FILE_SEND": handle_file_send,
     "CREATE_GROUP": handle_create_group,
     "JOIN_GROUP": handle_join_group,
     "LEAVE_GROUP": handle_leave_group,
