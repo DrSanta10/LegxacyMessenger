@@ -2,6 +2,7 @@ import socket
 import threading
 import sys
 import datetime
+import database as db
 from protocol import receive_message, send_response, send_message, validate, ParseError
 
 HOST = "0.0.0.0"
@@ -10,15 +11,20 @@ MAX = 50
 
 lock = threading.Lock()
 sessions = {}
-groups = {}
+#groups = {}
 
 
 def log(label, msg):
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] [{label:10}] {msg}")
     
+def now():
+    return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    
 def forward(target_user, parsed):
-    sock = sessions.get(target_user)
+    with lock:
+        sock = sessions.get(target_user)
     if not sock:
         return False
     try:
@@ -33,17 +39,47 @@ def clean(username):
     with lock:
         sessions.pop(username, None)
         
+        """"
         for name in list(groups):
             groups[name].discard(username)
             
             if not groups[name]:
                 del groups[name]
+        """
+
+def pending(username, connection):
+    pend = db.get_pending(username)
+    if not pend:
+        return
+    
+    log("PENDING", f"Delivering {len(pending)} queued message(s) to '{username}'")
+    
+    for msg in pend:
+        try:
+            send_message(connection, "MSG", "/user", header = {
+                "From": msg["sender"],
+                "To": username,
+                "Content-Type": "text/plain",
+                "Timestamp": msg["timestamp"],
+                "Offline": "true"
+            }, body = msg["body"])
+        except Exception as e:
+            log("PENDING", f"Could not deliver the queued message to '{username}': {e}")
+            break
+        
+    db.delivered(username)
+    
                 
 def handle_login(connection, parsed, address):
     username = parsed["headers"].get("From", "").strip()
+    password = parsed["headers"].get("Password", "").strip()
     
     if not username:
         send_response(connection, 400, {"To": ""}, body = "Username cannot be empty.")
+        return None
+    
+    if not password:
+        send_response(connection, 400, {"To": username}, body = "Password cannot be empty.")
         return None
     
     with lock:
@@ -54,6 +90,23 @@ def handle_login(connection, parsed, address):
                           body = "Username already in use.")
             log("LOGIN", f"Duplicate username '{username}' from {address}.")
             return None
+    
+    if not db.user_exists(username):
+        ok, err = db.register_user(username, password)
+        if not ok:
+            send_response(connection, 409, {"To": username}, body = err)
+            return None
+        log("LOGIN", f"Registered new user '{username}'")
+    else:
+        if not db.verify_user(username, password):
+            send_response(connection, 409, 
+                          {"To": username, "Error-Code": "401", 
+                           "Content-Type": "text/plain"},
+                          body = "Incorrect password.")
+            log("LOGIN", f"Wrong password for '{username}' from {address}.")
+            return None
+        
+    with lock:
         sessions[username] = connection
         
     send_response(connection, 200, {"To": username})
@@ -61,6 +114,8 @@ def handle_login(connection, parsed, address):
     
     with lock:
         log("SERVER", f"Active sessions: {len(sessions)}")
+        
+    pending(username, connection)
     
     return username
 
@@ -73,65 +128,93 @@ def handle_msg(connection, parsed, username):
     headers = parsed["headers"]
     group_id = headers.get("Group-ID")
     to = headers.get("To")
+    body = parsed["body"]
+    timestamp = headers.get("Timestamp", now())
     
     if group_id:
-        with lock:
-            members = groups.get(group_id)
+        members = db.get_members(group_id)
             
         if members is None:
             send_response(connection, 404, {"To": username}, 
                           body = f"Group '{group_id}' does not exist.")
             return
-        if username not in members:
+        if not db.is_member(group_id, username):
             send_response(connection, 401, {"To": username}, 
                           body = "You are not a member of this group.")
             return
         
+        db.store_message(username, body, group_name = group_id, time = timestamp)
+        
         delivered = 0
-        with lock:
-            for member in list(members):
-                if member != username and forward(member, parsed):
-                    delivered += 1
+        for member in members:
+            if member != username and forward(member, parsed):
+                delivered += 1
                     
         send_response(connection, 200, {"To": username})
-        log("MSG", f"'{username}' -> group '{group_id}' ({delivered} delivered)")
+        log("MSG", f"'{username}' -> group '{group_id}' ({delivered}/{len(members) - 1} delivered)")
         
     elif to:
+        
+        db.store_message(username, body, recipient= to, time= timestamp)
+        
         with lock:
+            online = to in sessions
+        
+        if online:
             ok = forward(to, parsed)
             
-        if ok:
-            send_response(connection, 200, {"To": username})
-            log("MSG", f"'{username}' -> '{to}'")
+            if ok:
+                send_response(connection, 200, {"To": username})
+                log("MSG", f"'{username}' -> '{to}'")
+            else:
+                send_response(connection, 500, {"To": username}, 
+                          body = f"Delivery failed due to server error.")
         else:
-            send_response(connection, 404, {"To": username}, 
-                          body = f"User '{to}' is not online.")
+            send_response(connection, 200, {"To": username})
+            log("MSG", f"'{username}' -> '{to}' (queued: '{to}' is offline).")
+            
     else:
         send_response(connection, 400, {"To": username}, 
                           body = "MSG requeires a To or Group-ID header.")
             
+
 def handle_create_group(connection, parsed, username):
     name = parsed["headers"].get("Group-ID", "").strip()
     if not name:
         send_response(connection, 400, {"To": username}, body = "Group-ID cannot be empty.")
         return
     
+    ok, err = db.create_group(name, created_by= username)
+    if not ok:
+        send_response(connection, 409, {"To": username}, body = err)
+        return
+    
+    """"
     with lock:
         if name in groups:
             send_response(connection, 409, {"To": username}, 
                           body = f"Group '{name}' already exists.")
             return
         groups[name] = {username}
+    """
         
     send_response(connection, 201, {"To": username, "Group-ID": name})
     log("GROUP", f"'{username}' created group '{name}'")
     
+
 def handle_join_group(connection, parsed, username):
     name = parsed["headers"].get("Group-ID", "").strip()
     if not name:
         send_response(connection, 400, {"To": username}, body = "Group-ID cannot be empty.")
         return
     
+    ok, err = db.join_group(name, username)
+    if not ok:
+        code = 409 if "already" in err else 404
+        send_response(connection, code, {"To": username}, body = err)
+        return
+
+    """
     with lock:
         if name not in groups:
             send_response(connection, 404, {"To": username}, 
@@ -145,9 +228,11 @@ def handle_join_group(connection, parsed, username):
         
         groups[name].add(username)
         members = list(groups[name])
-        
+    """    
+    
     send_response(connection, 200, {"To": username, "Group-ID": name})
     
+    members = db.get_members(name) or []
     with lock:
         for member in members:
             if member != username:
@@ -163,6 +248,7 @@ def handle_join_group(connection, parsed, username):
     
     log("GROUP", f"'{username}' joined '{name}'")
     
+    
 def handle_leave_group(connection, parsed, username):
     name = parsed["headers"].get("Group-ID", "").strip()
     
@@ -170,6 +256,13 @@ def handle_leave_group(connection, parsed, username):
         send_response(connection, 400, {"To": username}, body = "Group-ID cannot be empty.")
         return
     
+    ok, err = db.leave_group(name, username)
+    if not ok:
+        code = 404 if "does not exist" in err else 401
+        send_response(connection, code, {"To": username}, body = err)
+        return
+    
+    """
     with lock:
         if name not in groups:
             send_response(connection, 404, {"To": username}, 
@@ -185,7 +278,8 @@ def handle_leave_group(connection, parsed, username):
         if not groups[name]:
             del groups[name]
             log("GROUP", f"Group '{name}' deleted (no members left)")
-        
+    """
+    
     send_response(connection, 200, {"To": username})
     log("GROUP", f"'{username}' left '{name}'")
     
@@ -198,12 +292,11 @@ def handle_list_users(connection, parsed, username):
     log("LIST", f"'{username}' requested users ({len(online)} online)")
 
 def handle_list_groups(connection, parsed, username):
-    with lock:
-        names = list(groups.keys())
+    names = db.get_groups()
     send_response(connection, 200, 
                   {"To": username, "Content-Type": "text/plain"},
                   body = ",".join(names))
-    log("LIST", f"'{username}' requested users ({len(names)} groups)")
+    log("LIST", f"'{username}' requested groups ({len(names)} groups)")
     
 def handle_ping(connection, parsed, username):
     send_response(connection, 200, {"To": username})
@@ -275,6 +368,10 @@ def client_thread(connection, address):
 
 
 def server(host = HOST, port = PORT):
+    db.initialise()
+    log("DB", f"Database ready: {db.PATH}")
+    
+    
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((host, port))
@@ -288,8 +385,6 @@ def server(host = HOST, port = PORT):
             connection, address = srv.accept()
             t = threading.Thread(target=client_thread, args=(connection, address), daemon=True)
             t.start()
-            #with lock:
-            #   log("SERVER", f"Active sessions: {len(sessions)}")
     except KeyboardInterrupt:
         log("SERVER", "Shutting down.")
     finally:
