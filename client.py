@@ -2,10 +2,14 @@ import socket
 import threading
 import sys
 import datetime
+import base64
+import os
 from protocol import send_message, receive_message, ParseError
 
 HOST = "100.87.127.9"
 PORT = 5000
+
+DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "received")
 
 class NetworkClient:
     def __init__(self, message = None, notify = None,
@@ -15,6 +19,8 @@ class NetworkClient:
         self.error = error or (lambda *a: None)
         self.p2p = p2p or (lambda *a: None)
         self.users = users or (lambda *a: None)
+        self.file_received = self.file_received or (lambda *a: None)
+        
         self.sock = None
         self.username = None
         self.running = False
@@ -79,6 +85,56 @@ class NetworkClient:
                               "Timestamp": now()},
                    body = text)
         
+    def send_file(self, to, file):
+        if not os.path.isfile(file):
+            self.error(f"File not found: {file}")
+            return
+    
+        filename = os.path.basename(file)
+        filesize = os.path.getsize(file)
+        
+        try:
+            with open(file, "rb") as f:
+                raw = f.read()
+            data = base64.b64encode(raw).decode("utf-8")
+        except Exception as e:
+            self.error(f"Could not read file: {e}")
+            return
+        
+        self.send("FILE_SEND", "/user", headers = 
+                  {
+                      "From": self.username,
+                      "To": to,
+                      "Filename": filename,
+                      "Content-Type": "application/octet-stream",
+                      "Timestamp": now()
+                  }, body = data)
+        
+    def send_file_group(self, group, file):
+        if not os.path.isfile(file):
+            self.error(f"File not found: {file}")
+            return
+        
+        filename = os.path.basename(file)
+        filesize = os.path.getsize(file)
+        
+        try:
+            with open(file, "rb") as f:
+                raw = f.read()
+            data = base64.b64encode(raw).decode("utf-8")
+        except Exception as e:
+            self.error(f"Could not read file: {e}")
+            return
+        
+        self.send("FILE_SEND", "/group", headers = 
+                  { "From": self.username,
+                    "Group-ID": group,
+                    "Filename": filename,
+                    "Content-Type": "application/octet-stream",
+                    "Timestamp": now()
+                  }, body = data)
+            
+        
     def create_group(self, group):
         self.send("CREATE_GROUP", "/server", 
                    headers = {"From": self.username, "Group-ID": group})
@@ -127,6 +183,21 @@ class NetworkClient:
                         timestamp = headers.get("Timestamp", now())
                         chat = group_id if group_id else sender
                         self.message(chat, sender, body, timestamp)
+                        
+                    elif cmd == "FILE_SEND":
+                        sender = headers.get("From", "unknown")
+                        group_id = headers.get("Group-ID")
+                        file = headers.get("Filename", "file")
+                        timestamp = headers.get("Timestamp", now())
+                        chat = group_id if group_id else sender
+                        
+                        try:
+                            data = base64.b64decode(body)
+                        except Exception:
+                            self.error(f"Corrupt file received from {sender}.")
+                            continue
+                        
+                        self.file_received(sender, file, data, timestamp, chat)
                     
                     elif cmd == "NOTIFY":
                         group_id = headers.get("Group-ID", "")
@@ -156,6 +227,22 @@ class NetworkClient:
                 
 def now():
     return datetime.datetime.now().strftime("%H:%M")
+
+
+def save_file(file, data):
+    os.makedirs(DIR, exist = True)
+    
+    base, ext = os.path.splitext(file)
+    destination = os.path.join(DIR, file)
+    counter = 1
+    
+    while os.path.exists(destination):
+        destination = os.path.join(DIR, f"{base}_{counter}{ext}")
+        counter += 1
+        
+    with open(destination, "wb") as f:
+        f.write(data)
+    return destination
  
 def terminal():
     host = input(f"Server host [{HOST}]: ").strip() or HOST
@@ -164,8 +251,8 @@ def terminal():
     username = input("Username: ").strip()
     password = input("Password: ").strip()
     
-    def message(chat, sender, body, time):
-        print(f"\n [{time}] {sender} -> {username}: {body}")
+    def message(chat, sender, body, ts):
+        print(f"\n [{ts}] {sender} -> {username}: {body}")
         print("> ", end = "", flush = True)
         
     def notify(group, body):
@@ -179,8 +266,15 @@ def terminal():
     def users(names):
         print(f"\n [USERS] Online: {', '.join(names) if names else '(none)'}")
         print("> ", end = "", flush = True)
+    
+    def file_received(sender, file, data, ts, chat):
+        destination = save_file(file, data)
+        print(f"\n [{ts}] FILE from {sender}: '{file}' " 
+              f"saved to {destination}")
+        print("> ", end="", flush=True)
         
-    client = NetworkClient(message = message, notify = notify, error = error)
+        
+    client = NetworkClient(message = message, notify = notify, error = error, users=users, file_received=file_received)
     
     print(f"\nConnecting to {host}:{port} ...")
     ok, err = client.connect(host, port, username, password)
@@ -214,6 +308,22 @@ def terminal():
                 print(" Usage: /group <group_name> <message>")
             else:
                 client.group_msg(parts[1], parts[2])
+        elif cmd == "/file":
+            if len(parts) < 3:
+                print("Usage: /file <username> <filepath>")
+            else:
+                target = parts[1]
+                path = parts[2].strip()
+                print(f"Sending '{os.path.basename(path)}' to {target}")
+                client.send_file(target, path)
+        elif cmd == "/gfile":
+            if len(parts) < 3:
+                print("Usage: /gfile <group_name> <filepath>")
+            else:
+                group = parts[1]
+                path = parts[2].strip()
+                print(f"Sending '{os.path.basename(path)}' to group {group}")
+                client.send_file_group(group, path)
         elif cmd == "/create":
             if len(parts) < 2:
                 print(" Usage: /create <group_name>")
