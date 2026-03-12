@@ -434,7 +434,7 @@ def client_thread(connection, address):
 
 def server(host = HOST, port = PORT):
     db.initialise()
-    log("DB", f"Database ready: {db.PATH}")
+    #log("DB", f"Database ready: {db.PATH}")
     
     
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -443,7 +443,7 @@ def server(host = HOST, port = PORT):
     srv.listen(MAX)
     
     log("Server", f"LegxacyMessenger server listening on {host}:{port}")
-    log("Server", "Waiting for connections")
+    #log("Server", "Waiting for connections")
     
     try:
         while True:

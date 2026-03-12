@@ -13,13 +13,13 @@ DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "received")
 
 class NetworkClient:
     def __init__(self, message = None, notify = None,
-                 error = None, p2p = None, users = None):
+                 error = None, p2p = None, users = None, file_received = None):
         self.message = message or (lambda *a: None)
         self.notify = notify or (lambda *a: None)
         self.error = error or (lambda *a: None)
         self.p2p = p2p or (lambda *a: None)
         self.users = users or (lambda *a: None)
-        self.file_received = self.file_received or (lambda *a: None)
+        self.file_received = file_received or (lambda *a: None)
         
         self.sock = None
         self.username = None
@@ -274,7 +274,7 @@ def terminal():
         print("> ", end="", flush=True)
         
         
-    client = NetworkClient(message = message, notify = notify, error = error, users=users, file_received=file_received)
+    client = NetworkClient(message = message, notify = notify, error = error, users = users, file_received = file_received)
     
     print(f"\nConnecting to {host}:{port} ...")
     ok, err = client.connect(host, port, username, password)
