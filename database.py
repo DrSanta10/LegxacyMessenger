@@ -23,10 +23,10 @@ def now():
 
 def initialise():
     _conn().executescript("""CREATE TABLE IF NOT EXISTS users (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            username   TEXT    NOT NULL UNIQUE COLLATE NOCASE,
-            password   TEXT    NOT NULL,
-            created_at TEXT    NOT NULL
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password TEXT NOT NULL,
+            created_at TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS groups (
@@ -80,7 +80,7 @@ def register_user(username, password):
     
     
 def verify_user(username, password):
-    row = _conn().execute("SELECT password FROM users WHERE username =? COLLATE NOCASE",
+    row = _conn().execute("SELECT password FROM users WHERE username = ? COLLATE NOCASE",
                           (username, )).fetchone()
     if not row:
         return False
@@ -124,7 +124,7 @@ def leave_group(group, username):
     
     if not _conn().execute("SELECT 1 FROM group_members WHERE group_name = ? AND username = ? COLLATE NOCASE",
                        (group, username)).fetchone():
-        return False, f"You are already a member of '{group}'."
+        return False, f"You are not a member of '{group}'."
     
     _conn().execute("DELETE FROM group_members WHERE group_name = ? AND username = ? COLLATE NOCASE",
                     (group, username))
@@ -142,32 +142,32 @@ def get_members(group):
 
 
 def is_member(group, username):
-    row = _conn().execute("SELECT 1 FROM group_member WHERE group_name = ? AND username = ? COLLATE NOCASE", (group, username)).fetchone()
+    row = _conn().execute("SELECT 1 FROM group_members WHERE group_name = ? AND username = ? COLLATE NOCASE", (group, username)).fetchone()
     
     return row is not None
 
-def  get_groups():
+def get_groups():
     rows = _conn().execute("SELECT name FROM groups").fetchall()
     return [r["name"] for r in rows]
 
 
-def store_message(sender, body, recipient = None, group = None, time = None):
-    if time is None:
-        time = now()
+def store_message(sender, body, recipient = None, group = None, timestamp = None):
+    if timestamp is None:
+        timestamp = now()
     
     _conn().execute("INSERT INTO messages (sender, recipient, group_name, body, timestamp) VALUES (?, ?, ?, ?, ?)",
-                    (sender, recipient, group, body, time))
+                    (sender, recipient, group, body, timestamp))
     _conn().commit()
     
 
-def store_file(sender, filename, data, recipient = None, group = None, time = None):
-    if time is None:
-        time = now()
+def store_file(sender, filename, data, recipient = None, group = None, timestamp = None):
+    if timestamp is None:
+        timestamp = now()
         
     payload = json.dumps({"_type": "file", "filename": filename, "data": data})
     
     _conn().execute("INSERT INTO messages (sender, recipient, group_name, body, timestamp) VALUES (?, ?, ?, ?, ?)",
-          (sender, recipient, group, payload, time))
+          (sender, recipient, group, payload, timestamp))
     _conn().commit()
     
 def is_file_body(body):
@@ -176,7 +176,7 @@ def is_file_body(body):
 
     try:
         return json.loads(body).get("_type") == "file"
-    except (json.JSONDecodeError, AttributeError):
+    except Exception:
         return False
     
 def parse_file(body):
@@ -204,7 +204,7 @@ def history(user1, user2, limit=50):
                            FROM messages 
                            WHERE group_name IS NULL 
                            AND ((sender = ? COLLATE NOCASE AND recipient = ? COLLATE NOCASE) 
-                           OR (sender = ? COLALTE NOCASE AND recipient = ? COLLATE NOCASE))
+                           OR (sender = ? COLLATE NOCASE AND recipient = ? COLLATE NOCASE))
                            ORDER BY timestamp DESC
                            LIMIT ?""", (user1, user2, user2, user1, limit)).fetchall()
     return [dict(r) for r in reversed(rows)]

@@ -52,7 +52,7 @@ def pending(username, connection):
     if not pend:
         return
     
-    log("PENDING", f"Delivering {len(pending)} queued message(s) to '{username}'")
+    log("PENDING", f"Delivering {len(pend)} queued message(s) to '{username}'")
     
     for msg in pend:
         try:
@@ -64,7 +64,7 @@ def pending(username, connection):
                 filename, data = db.parse_file(body)
                 
                 if filename and data:
-                    send_message(connection, "FILE_SEND", "/user", header = {
+                    send_message(connection, "FILE_SEND", "/user", headers = {
                         "From": sender,
                         "To": username,
                         "Filename": filename,
@@ -73,7 +73,7 @@ def pending(username, connection):
                         "Offline": "true"
                     }, body = data)
             else:
-                send_message(connection, "MSG", "/user", header = {
+                send_message(connection, "MSG", "/user", headers = {
                         "From": sender,
                         "To": username,
                         "Content-Type": "text/plain",
@@ -84,7 +84,10 @@ def pending(username, connection):
             log("PENDING", f"Could not deliver the queued item to '{username}': {e}")
             break
         
-    db.delivered(username)
+    try:
+        db.delivered(username)
+    except Exception as e:
+        log("PENDING", f"Failed for '{username}': {e}")
     
                 
 def handle_login(connection, parsed, address):
@@ -101,12 +104,29 @@ def handle_login(connection, parsed, address):
     
     with lock:
         if username in sessions:
-            send_response(connection, 409, 
+            old = sessions[username]
+            stale = False
+            try:
+                old.getpeername()
+                old.send(b"")
+            except OSError:
+                stale = True
+                
+            if stale:
+                log("LOGIN", f"Removing stale session of '{username}'")
+                sessions.pop(username, None)
+                
+                try:
+                    old.close()
+                except Exception:
+                    pass
+            else:
+                send_response(connection, 409, 
                           {"To": username, "Error-Code": "409", 
                            "Content-Type": "text/plain"},
                           body = "Username already in use.")
-            log("LOGIN", f"Duplicate username '{username}' from {address}.")
-            return None
+                log("LOGIN", f"Duplicate session for '{username}'")
+                return None
     
     if not db.user_exists(username):
         ok, err = db.register_user(username, password)
@@ -120,7 +140,7 @@ def handle_login(connection, parsed, address):
                           {"To": username, "Error-Code": "401", 
                            "Content-Type": "text/plain"},
                           body = "Incorrect password.")
-            log("LOGIN", f"Wrong password for '{username}' from {address}.")
+            log("LOGIN", f"Wrong password for '{username}' from {address}")
             return None
         
     with lock:
@@ -131,8 +151,11 @@ def handle_login(connection, parsed, address):
     
     with lock:
         log("SERVER", f"Active sessions: {len(sessions)}")
-        
-    pending(username, connection)
+    
+    try:
+        pending(username, connection)
+    except Exception as e:
+        log("PENDING", f"Error during offline delivery for '{username}': {e}")
     
     return username
 
@@ -160,7 +183,7 @@ def handle_msg(connection, parsed, username):
                           body = "You are not a member of this group.")
             return
         
-        db.store_message(username, body, group_name = group_id, time = timestamp)
+        db.store_message(username, body, group = group_id, timestamp = timestamp)
         
         delivered = 0
         for member in members:
@@ -172,20 +195,13 @@ def handle_msg(connection, parsed, username):
         
     elif to:
         
-        db.store_message(username, body, recipient= to, time= timestamp)
+        db.store_message(username, body, recipient= to, timestamp = timestamp)
         
-        with lock:
-            online = to in sessions
-        
-        if online:
-            ok = forward(to, parsed)
+        ok = forward(to, parsed)
             
-            if ok:
-                send_response(connection, 200, {"To": username})
-                log("MSG", f"'{username}' -> '{to}'")
-            else:
-                send_response(connection, 500, {"To": username}, 
-                          body = f"Delivery failed due to server error.")
+        if ok:
+            send_response(connection, 200, {"To": username})
+            log("MSG", f"'{username}' -> '{to}' (delivered)")
         else:
             send_response(connection, 200, {"To": username})
             log("MSG", f"'{username}' -> '{to}' (queued: '{to}' is offline).")
@@ -222,22 +238,16 @@ def handle_file_send(connection, parsed, username):
         log("FILE", f"'{username}' -> group '{group_id}' '{filename}' " f"({delivered}/{len(members) - 1} delivered)")
         
     elif to:
-        with lock:
-            online = to in sessions
+        db.store_file(username, filename, data, recipient=to, timestamp = timestamp)
+
+        ok = forward(to, parsed)
             
-        if online:
-            ok = forward(to, parsed)
-            
-            if ok:
-                send_response(connection, 200, {"To": username})
-                log("FILE", f"'{username}' -> '{to}' '{filename}' (delivered)")
-            else:
-                send_response(connection, 500, {"To": username}, body = "File delivery failed.")
-        
-        else:
-            db.store_file(username, filename, data, recipient=to, time=timestamp)
+        if ok:
             send_response(connection, 200, {"To": username})
-            log("FILE", f"'{username}' -> '{to}' '{filename}' (queued - offline)")
+            log("FILE", f"'{username}' -> '{to}' '{filename}' (delivered)")
+        else:
+            send_response(connection, 200, {"To": username})
+            log("FILE", f"'{username}' -> '{to}' '{filename}' (queued: '{to}' is offline)")
             
     else:
         send_response(connection, 400, {"To": username}, body = "FILE_SEND required a To or Group-ID header.")
@@ -300,10 +310,10 @@ def handle_join_group(connection, parsed, username):
     with lock:
         for member in members:
             if member != username:
-                socket = sessions.get(member)
-                if socket:
+                sock = sessions.get(member)
+                if sock:
                     try:
-                        send_message(socket, "NOTIFY", "/server", 
+                        send_message(sock, "NOTIFY", "/server", 
                                      headers = {"From": "server", "To": member,
                                                 "Group-ID": name},
                                      body = f"{username} joined the group.")

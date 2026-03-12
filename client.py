@@ -86,12 +86,21 @@ class NetworkClient:
                    body = text)
         
     def send_file(self, to, file):
-        if not os.path.isfile(file):
+        file = os.path.abspath(os.path.expanduser(file))
+        
+        if not os.path.exists(file):
             self.error(f"File not found: {file}")
+            return
+        if not os.path.isfile(file):
+            self.error(f"Not a file: {file}")
             return
     
         filename = os.path.basename(file)
         filesize = os.path.getsize(file)
+        
+        if filesize > 50 * 1024 * 1024:
+            self.error("File is too large. Maximum size is 50MB.")
+            return
         
         try:
             with open(file, "rb") as f:
@@ -111,12 +120,21 @@ class NetworkClient:
                   }, body = data)
         
     def send_file_group(self, group, file):
-        if not os.path.isfile(file):
+        file = os.path.abspath(os.path.expanduser(file))
+        
+        if not os.path.exists(file):
             self.error(f"File not found: {file}")
+            return
+        if not os.path.isfile(file):
+            self.error(f"Not a file: {file}")
             return
         
         filename = os.path.basename(file)
         filesize = os.path.getsize(file)
+        
+        if filesize > 50 * 1024 * 1024:
+            self.error("File is too large. Maximum size is 50MB.")
+            return
         
         try:
             with open(file, "rb") as f:
@@ -230,7 +248,7 @@ def now():
 
 
 def save_file(file, data):
-    os.makedirs(DIR, exist = True)
+    os.makedirs(DIR, exist_ok = True)
     
     base, ext = os.path.splitext(file)
     destination = os.path.join(DIR, file)

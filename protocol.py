@@ -158,6 +158,8 @@ def receive_message(sock):
             raise ConnectionError("Socket closed mid-body.")
         body += chunk
         
+    body = body[:content]
+        
     full = header_part + bytes + body
     return parse_message(full)
 
