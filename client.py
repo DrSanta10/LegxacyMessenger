@@ -6,6 +6,18 @@ import base64
 import os
 from protocol import send_message, receive_message, ParseError
 
+try:
+    import pyaudio
+    PYAUDIO_AVAILABLE = True
+except ImportError:
+    PYAUDIO_AVAILABLE = False
+    
+CHUNK = 1024
+FORMAT = 8
+CHANNELS = 1
+RATE = 44100
+
+
 HOST = "100.87.127.9"
 PORT = 5000
 
@@ -32,7 +44,12 @@ class NetworkClient:
 
         self.peer_ip = None
         self.peer_port = None
+        self.call_peer = None
         self.media_running = False
+        
+        self.audio = None
+        self.mic_stream = None
+        self.speaker_stream = None
         
     def connect(self, host, port, username, password):
         try:
@@ -196,15 +213,93 @@ class NetworkClient:
         }
     )
         
-    def start_media(self):
+    def start_media(self, peer = None):
 
         if self.media_running:
             return
-
+        
+        if peer:
+            self.call_peer = peer
+            
         self.media_running = True
-
-        threading.Thread(target=self.receive_media, daemon=True).start()
-        threading.Thread(target=self.send_media, daemon=True).start()
+        
+        if PYAUDIO_AVAILABLE:
+            import os as _os
+            devnull_fd = _os.open(_os.devnull, _os.O_WRONLY)
+            old_stderr = _os.dup(2)
+            _os.dup2(devnull_fd, 2)
+            try:
+                self.audio = pyaudio.PyAudio()
+                
+            finally:
+                _os.dup2(old_stderr, 2)
+                _os.close(devnull_fd)
+                _os.close(old_stderr)
+            
+            input_index = None
+            output_index = None
+            
+            for i in range(self.audio.get_device_count()):
+                try:
+                    info = self.audio.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                
+                if input_index is None and info.get("maxInputChannels", 0) > 0:
+                    input_index = i
+                if output_index is None and info.get("maxOutputChannels", 0) > 0:
+                    output_index = i
+                if input_index is not None and output_index is not None:
+                    break
+                
+                if input_index is not None:
+                    try:
+                        self.mic_stream = self.audio.open(
+                            format=pyaudio.paInt16,
+                            channels=CHANNELS,
+                            rate=RATE,
+                            input=True,
+                            input_device_index=input_index,
+                            frames_per_buffer=CHUNK)
+            
+                    except Exception as e:
+                        self.error(f"Audio device error: {e}. Call connected but no audio.")
+                        self.mic_stream = None
+                else:
+                    self.error("No microphone found. Sending silence.")
+                    self.mic_stream = None
+                    
+                if output_index is not None:
+                    try:
+                        self.speaker_stream = self.audio.open(
+                            format=pyaudio.paInt16,
+                            channels=CHANNELS,
+                            rate=RATE,
+                            output=True,
+                            output_device_index=output_index,
+                            frames_per_buffer=CHUNK)
+            
+                    except Exception as e:
+                        self.error(f"Speaker open failed (device {output_index}): {e}")
+                        self.speaker_stream = None
+                else:
+                    self.error("No speaker found. Incoming audio will be discarded.")
+                    self.speaker_stream = None
+                    
+                if self.mic_stream and self.speaker_stream:
+                    mic_name = self.audio.get_device_info_by_index(input_index).get("name", "?")
+                    spk_name = self.audio.get_device_info_by_index(output_index).get("name", "?")
+                    print(f"\n [CALL] Audio ready mic={mic_name} speaker={spk_name}")
+                    print("> ", end="", flush=True)
+                elif not self.mic_stream and not self.speaker_stream:
+                    self.error("No audio devices found. Call connected but no audio.")
+                                
+        else:
+            self.error("pyaudio is not installed. Call connected but no audio."
+                       "Install with: pip install pyaudio")
+            
+        threading.Thread(target=self.receive_media, daemon = True).start()
+        threading.Thread(target=self.send_media, daemon = True).start()
 
     def receive_media(self):
         self.udp_socket.settimeout(1.0)
@@ -219,8 +314,12 @@ class NetworkClient:
                 if self.peer_ip is None or self.peer_port is None:
                     self.peer_ip = addr[0]
                     self.peer_port = addr[1]
-                    print(f"\n [CALL] Media path established with {addr[0]}:{addr[1]}")
-                    print("> ", end="", flush=True)
+                    
+                if self.speaker_stream:
+                    try:
+                        self.speaker_stream.write(data)
+                    except Exception:
+                        pass
                     
                 self.p2p(data, addr)
                 
@@ -232,6 +331,8 @@ class NetworkClient:
                 if self.media_running:
                     self.error(f"Media receive error: {e}")
                 break
+            
+        self.media_running = False
 
     def send_media(self):
         import time
@@ -239,13 +340,15 @@ class NetworkClient:
         while self.media_running:
 
             if self.peer_ip and self.peer_port:
-                packet = b"media_test_packet"
-
+                
                 try:
-                    self.udp_socket.sendto(
-                    packet,
-                    (self.peer_ip, self.peer_port)
-                    )
+                    if self.mic_stream:
+                        audio_data = self.mic_stream.read(CHUNK, exception_on_overflow=False)
+                    else:
+                        audio_data = b'\x00' * CHUNK * 2
+                    
+                    self.udp_socket.sendto(audio_data, (self.peer_ip, self.peer_port))
+                
                 except OSError:
                     break
                 except Exception as e:
@@ -253,23 +356,63 @@ class NetworkClient:
                         self.error(f"Media send error: {e}")
                     break
             
-            time.sleep(0.02)
+            else:
+                time.sleep(0.02)
+                
+    
+    def hangup(self):
+        if not self.media_running and not self.call_peer:
+            return
+        
+        if self.call_peer:
+            try:
+                self.send("HANGUP", "/user",
+                          headers={"From": self.username,
+                                   "To": self.call_peer})
+                
+            except Exception:
+                pass
+            
+        self.stop_media()
         
     def stop_media(self):
         self.media_running = False
+        self.call_peer = None
         self.peer_ip = None
         self.peer_port = None
         
+        if self.mic_stream:
+            try:
+                self.mic_stream.stop_stream()
+                self.mic_stream.close()
+            except Exception:
+                pass
+            self.mic_stream = None
+            
+        if self.speaker_stream:
+            try:
+                self.speaker_stream.stop_stream()
+                self.speaker_stream.close()
+            except Exception:
+                pass
+            self.speaker_stream = None
+            
+        if self.audio:
+            try:
+                self.audio.terminate()
+            except Exception:
+                pass
+            self.audio = None
+            
         try:
             self.udp_socket.close()
         except Exception:
             pass
-        
+
         self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.udp_socket.bind(("", 0))
         self.udp_port = self.udp_socket.getsockname()[1]
-        print("\n [CALL] Call ended.")
-        print("> ", end="", flush=True) 
+
         
     def send(self, command, target, headers = None, body = ""):
         if not self.sock:
@@ -320,7 +463,8 @@ class NetworkClient:
                         sender = headers.get("From")
 
                         self.peer_ip = headers.get("Peer-IP")
-                        self.peer_port = int(headers.get("UDP-Port"))
+                        self.peer_port = int(headers.get("UDP-Port", 0)) or None
+                        self.call_peer = sender
                         
                         print(f"Incoming call from {sender}")
                         accept = input("Accept call? (y/n): ")
@@ -335,17 +479,36 @@ class NetworkClient:
                                     "UDP-Port": str(self.udp_port)
                                 }
                             )
+                            self.start_media(peer=sender)
+                            print(f"\n [CALL] Call started with {sender}. "
+                                  f"Type /hangup to end.")
+                            print("> ", end = "", flush = True)
+                        else:
+                            self.call_peer = None
+                            self.peer_ip = None
+                            self.peer_port = None
+                            print(f"\n [CALL] Call from {sender} declined.")
+                            print("> ", end= "", flush = True)
+                            
 
                     elif cmd == "P2P_OFFER":
                         sender = headers.get("From")
-                        port = int(headers.get("UDP-Port"))
 
                         self.peer_ip = headers.get("Peer-IP")
-                        self.peer_port = port
+                        self.peer_port = int(headers.get("UDP-Port", 0)) or None
+                        self.call_peer = sender
 
-                        print(f"Call connected with {sender}")
+                        print(f"\n [CALL] {sender} accepted. Call started. "
+                              f"Type /hangup to end.")
+                        print("> ", end="", flush=True)
+                        self.start_media(peer = sender)
+                    
+                    elif cmd == "HANGUP":
+                        sender = headers.get("From", "peer")
+                        print(f"\n [CALL] {sender} ended the call.")
+                        print("> ", end = "", flush=True)
+                        self.stop_media()
 
-                        self.start_media()
 
                 elif msg["type"] == "response":
                     code = msg["status_code"]
@@ -419,8 +582,11 @@ def terminal():
               f"saved to {destination}")
         print("> ", end="", flush=True)
         
+    def p2p(data, addr):
+        pass
         
-    client = NetworkClient(message = message, notify = notify, error = error, users = users, file_received = file_received)
+        
+    client = NetworkClient(message = message, notify = notify, error = error, users = users, file_received = file_received, p2p = p2p)
     
     print(f"\nConnecting to {host}:{port} ...")
     ok, err = client.connect(host, port, username, password)
@@ -428,6 +594,10 @@ def terminal():
     if not ok:
         print(f"[FAILED] {err}")
         sys.exit(1)
+        
+    if not PYAUDIO_AVAILABLE:
+        print("[WARN] pyaudio not found. Voice calls will connect but have no audio.")
+        print("Install with: pip install pyaudio")
         
     print(f"Logged in as '{username}'.\n")
     
@@ -490,7 +660,8 @@ def terminal():
             if not client.media_running:
                 print("No active call.")
             else:
-                client.stop_media()
+                client.hangup()
+                print("[CALL] Call ended.")
                 
         elif cmd == "/leave":
             if len(parts) < 2:
