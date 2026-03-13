@@ -252,6 +252,31 @@ def handle_file_send(connection, parsed, username):
     else:
         send_response(connection, 400, {"To": username}, body = "FILE_SEND required a To or Group-ID header.")
 
+
+def handle_p2p(connection, parsed, username):
+
+    headers = parsed["headers"]
+    to = headers.get("To")
+
+    if not to:
+        send_response(connection, 400, {"To": username},
+                      body="P2P requires a To header.")
+        return
+    
+    peer_ip = connection.getpeername()[0]
+
+    headers["Peer-IP"] = peer_ip
+
+    ok = forward(to, parsed)
+
+    if ok:
+        send_response(connection, 200, {"To": username})
+        log("P2P", f"'{username}' -> '{to}' (forwarded)")
+    else:
+        send_response(connection, 404, {"To": username},
+                      body=f"User '{to}' is not online.")
+
+
 def handle_create_group(connection, parsed, username):
     name = parsed["headers"].get("Group-ID", "").strip()
     if not name:
@@ -386,6 +411,8 @@ HANDLERS = {
     "LIST_USERS": handle_list_users,
     "LIST_GROUPS": handle_list_groups,
     "PING": handle_ping,
+    "P2P_REQUEST": handle_p2p,
+    "P2P_OFFER": handle_p2p,
 }
 
 def client_thread(connection, address):
