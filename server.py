@@ -39,13 +39,6 @@ def clean(username):
     with lock:
         sessions.pop(username, None)
         
-        """"
-        for name in list(groups):
-            groups[name].discard(username)
-            
-            if not groups[name]:
-                del groups[name]
-        """
 
 def pending(username, connection):
     pend = db.get_pending(username)
@@ -106,6 +99,7 @@ def handle_login(connection, parsed, address):
         if username in sessions:
             old = sessions[username]
             stale = False
+            
             try:
                 old.getpeername()
                 old.send(b"")
@@ -253,28 +247,84 @@ def handle_file_send(connection, parsed, username):
         send_response(connection, 400, {"To": username}, body = "FILE_SEND required a To or Group-ID header.")
 
 
-def handle_p2p(connection, parsed, username):
+def handle_p2p_request(connection, parsed, username):
 
     headers = parsed["headers"]
     to = headers.get("To")
 
     if not to:
         send_response(connection, 400, {"To": username},
-                      body="P2P requires a To header.")
+                      body="P2P_REQUEST requires a To header.")
         return
     
-    peer_ip = connection.getpeername()[0]
+    with lock:
+        target_sock = sessions.get(to)
+        
+    if not target_sock:
+        send_response(connection, 404, {"To": username}, body = f"User '{to}' is not online.")
+        return
+            
+    caller_ip = connection.getpeername()[0]
 
-    headers["Peer-IP"] = peer_ip
-
-    ok = forward(to, parsed)
-
-    if ok:
+    new_headers = dict(headers)
+    new_headers["Peer-IP"] = caller_ip
+    
+    try:
+        send_message(target_sock, "P2P_REQUEST", "/user", headers=new_headers)
         send_response(connection, 200, {"To": username})
-        log("P2P", f"'{username}' -> '{to}' (forwarded)")
-    else:
-        send_response(connection, 404, {"To": username},
-                      body=f"User '{to}' is not online.")
+        log("CALL", f"'{username}' is calling '{to}'")
+    except Exception as e:
+        send_response(connection, 500, {"To": username}, body = "Failed to reach target.")
+        log("CALL", f"Failed to forward P2P_REQUEST to '{to}': {e}")
+
+
+def handle_p2p_offer(connection, parsed, username):
+    headers = parsed["headers"]
+    to = headers.get("To")
+    
+    if not to:
+        send_response(connection, 400, {"To": username}, body = "P2P_OFFER requires a To header.")
+        return
+    
+    with lock:
+        target_sock = sessions.get(to)
+        
+    if not target_sock:
+        send_response(connection, 404, {"To": username}, body = f"User '{to}' is not online.")
+        return
+    
+    callee_ip = connection.getpeername()[0]
+    new_headers = dict(headers)
+    new_headers["Peer-IP"] = callee_ip
+    
+    try:
+        send_message(target_sock, "P2P_OFFER", "/user", headers=new_headers)
+        send_response(connection, 200, {"To": username})
+        log("CALL", f"'{username}' accepted call from '{to}'")
+    except Exception as e:
+        send_response(connection, 500, {"To": username}, body = "Failed to reach target.")
+        log("CALL", f"Failed to forward P2P_OFFER to '{to}': {e}")
+        
+
+def handle_hangup(connection, parsed, username):
+    headers = parsed["headers"]
+    to = headers.get("To")
+    
+    if not to:
+        send_response(connection, 400, {"To": username}, body = "HANGUP requires a To header.")
+        return
+    
+    with lock:
+        target_sock = sessions.get(to)
+        
+    if target_sock:
+        try:
+            send_message(target_sock, "HANGUP", "/user", headers = {"From": username, "To": to})
+        except Exception:
+            pass
+        
+    send_response(connection, 200, {"To": username})
+    log("CALL", f"'{username}' ended call with '{to}'")
 
 
 def handle_create_group(connection, parsed, username):
@@ -287,16 +337,7 @@ def handle_create_group(connection, parsed, username):
     if not ok:
         send_response(connection, 409, {"To": username}, body = err)
         return
-    
-    """"
-    with lock:
-        if name in groups:
-            send_response(connection, 409, {"To": username}, 
-                          body = f"Group '{name}' already exists.")
-            return
-        groups[name] = {username}
-    """
-        
+
     send_response(connection, 201, {"To": username, "Group-ID": name})
     log("GROUP", f"'{username}' created group '{name}'")
     
@@ -313,21 +354,6 @@ def handle_join_group(connection, parsed, username):
         send_response(connection, code, {"To": username}, body = err)
         return
 
-    """
-    with lock:
-        if name not in groups:
-            send_response(connection, 404, {"To": username}, 
-                          body = f"Group '{name}' does not exists.")
-            return
-        
-        if username in groups[name]:
-            send_response(connection, 409, {"To": username}, 
-                          body = f"You are already a member of '{name}'")
-            return
-        
-        groups[name].add(username)
-        members = list(groups[name])
-    """    
     
     send_response(connection, 200, {"To": username, "Group-ID": name})
     
@@ -361,24 +387,6 @@ def handle_leave_group(connection, parsed, username):
         send_response(connection, code, {"To": username}, body = err)
         return
     
-    """
-    with lock:
-        if name not in groups:
-            send_response(connection, 404, {"To": username}, 
-                          body = f"Group '{name}' does not exists.")
-            return
-        
-        if username not in groups[name]:
-            send_response(connection, 401, {"To": username},
-                          body = f"You are not a member of '{name}'.")
-            return
-        
-        groups[name].discard(username)
-        if not groups[name]:
-            del groups[name]
-            log("GROUP", f"Group '{name}' deleted (no members left)")
-    """
-    
     send_response(connection, 200, {"To": username})
     log("GROUP", f"'{username}' left '{name}'")
     
@@ -411,8 +419,9 @@ HANDLERS = {
     "LIST_USERS": handle_list_users,
     "LIST_GROUPS": handle_list_groups,
     "PING": handle_ping,
-    "P2P_REQUEST": handle_p2p,
-    "P2P_OFFER": handle_p2p,
+    "P2P_REQUEST": handle_p2p_request,
+    "P2P_OFFER": handle_p2p_offer,
+    "HANGUP": handle_hangup,
 }
 
 def client_thread(connection, address):

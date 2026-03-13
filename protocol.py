@@ -7,7 +7,7 @@ BUFFER_SIZE = 4096
 COMMAND_TYPES = {"LOGIN", "LOGOUT", "CREATE_GROUP", "JOIN_GROUP", 
                  "LEAVE_GROUP", "LIST_USERS", "LIST_GROUPS", "P2P_REQUEST", "P2P_OFFER"}
 
-CONTROL_TYPES = {"ACK", "ERROR", "PING", "PONG", "NOTIFY"}
+CONTROL_TYPES = {"ACK", "ERROR", "PING", "PONG", "NOTIFY", "HANGUP"}
 
 DATA_TYPES = {"MSG", "MEDIA_INIT", "MEDIA_DATA", "MEDIA_ACK", "MEDIA_END", "FILE_SEND"}
 
@@ -106,8 +106,10 @@ def parse_message(raw):
     
     for line in lines[1:]:
         line = line.strip()
+        
         if not line:
             continue
+        
         if ":" not in line:
             raise ParseError(f"Malformed header line: '{line}'")
         key, _, value = line.partition(":")
