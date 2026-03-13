@@ -25,6 +25,15 @@ class NetworkClient:
         self.username = None
         self.running = False
         
+        #UDP Socket
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_socket.bind(("", 0))  
+        self.udp_port = self.udp_socket.getsockname()[1]
+
+        self.peer_ip = None
+        self.peer_port = None
+        self.media_running = False
+        
     def connect(self, host, port, username, password):
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -175,6 +184,92 @@ class NetworkClient:
         
     def ping(self):
         self.send("PING", "/server", headers = {"From": self.username})
+    
+    def request_call(self, username):
+        self.send(
+            "P2P_REQUEST",
+            "/user",
+        headers={
+            "From": self.username,
+            "To": username,
+            "UDP-Port": str(self.udp_port)
+        }
+    )
+        
+    def start_media(self):
+
+        if self.media_running:
+            return
+
+        self.media_running = True
+
+        threading.Thread(target=self.receive_media, daemon=True).start()
+        threading.Thread(target=self.send_media, daemon=True).start()
+
+    def receive_media(self):
+        self.udp_socket.settimeout(1.0)
+        
+        while self.media_running:
+            try:
+                data, addr = self.udp_socket.recvfrom(65535)
+                
+                if not self.media_running:
+                    break
+                
+                if self.peer_ip is None or self.peer_port is None:
+                    self.peer_ip = addr[0]
+                    self.peer_port = addr[1]
+                    print(f"\n [CALL] Media path established with {addr[0]}:{addr[1]}")
+                    print("> ", end="", flush=True)
+                    
+                self.p2p(data, addr)
+                
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            except Exception as e:
+                if self.media_running:
+                    self.error(f"Media receive error: {e}")
+                break
+
+    def send_media(self):
+        import time
+
+        while self.media_running:
+
+            if self.peer_ip and self.peer_port:
+                packet = b"media_test_packet"
+
+                try:
+                    self.udp_socket.sendto(
+                    packet,
+                    (self.peer_ip, self.peer_port)
+                    )
+                except OSError:
+                    break
+                except Exception as e:
+                    if self.media_running:
+                        self.error(f"Media send error: {e}")
+                    break
+            
+            time.sleep(0.02)
+        
+    def stop_media(self):
+        self.media_running = False
+        self.peer_ip = None
+        self.peer_port = None
+        
+        try:
+            self.udp_socket.close()
+        except Exception:
+            pass
+        
+        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.udp_socket.bind(("", 0))
+        self.udp_port = self.udp_socket.getsockname()[1]
+        print("\n [CALL] Call ended.")
+        print("> ", end="", flush=True) 
         
     def send(self, command, target, headers = None, body = ""):
         if not self.sock:
@@ -221,6 +316,37 @@ class NetworkClient:
                         group_id = headers.get("Group-ID", "")
                         self.notify(group_id, body)
 
+                    elif cmd == "P2P_REQUEST":
+                        sender = headers.get("From")
+
+                        self.peer_ip = headers.get("Peer-IP")
+                        self.peer_port = int(headers.get("UDP-Port"))
+                        
+                        print(f"Incoming call from {sender}")
+                        accept = input("Accept call? (y/n): ")
+
+                        if accept.lower() == "y":
+                            self.send(
+                                "P2P_OFFER",
+                                "/user",
+                                headers={
+                                    "From": self.username,
+                                    "To": sender,
+                                    "UDP-Port": str(self.udp_port)
+                                }
+                            )
+
+                    elif cmd == "P2P_OFFER":
+                        sender = headers.get("From")
+                        port = int(headers.get("UDP-Port"))
+
+                        self.peer_ip = headers.get("Peer-IP")
+                        self.peer_port = port
+
+                        print(f"Call connected with {sender}")
+
+                        self.start_media()
+
                 elif msg["type"] == "response":
                     code = msg["status_code"]
                     if code in (200, 201):
@@ -261,6 +387,8 @@ def save_file(file, data):
     with open(destination, "wb") as f:
         f.write(data)
     return destination
+
+
  
 def terminal():
     host = input(f"Server host [{HOST}]: ").strip() or HOST
@@ -352,6 +480,18 @@ def terminal():
                 print(" Usage: /join <group_name>")
             else:
                 client.join_group(parts[1])
+        elif cmd == "/call":
+            if len(parts) < 2:
+                print(" Usage: /call <username>")
+            else:
+                client.request_call(parts[1])
+                
+        elif cmd == "/hangup":
+            if not client.media_running:
+                print("No active call.")
+            else:
+                client.stop_media()
+                
         elif cmd == "/leave":
             if len(parts) < 2:
                 print(" Usage: /leave <group_name>")
