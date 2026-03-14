@@ -213,6 +213,32 @@ class NetworkClient:
         }
     )
         
+    def accept_call(self):
+        if not self.incoming_call:
+            return False, "No incoming call."
+        if self.media_running:
+            return False, "Already in a call."
+ 
+        c = self.incoming_call
+        self.incoming_call = None
+        self.peer_ip   = c["peer_ip"]
+        self.peer_port = c["peer_port"]
+        sender         = c["from"]
+ 
+        self.send("P2P_OFFER", "/user",
+                  headers={"From": self.username,
+                           "To": sender,
+                           "UDP-Port": str(self.udp_port)})
+        self.start_media(peer=sender)
+        return True, sender
+    
+    def decline_call(self):
+        if not self.incoming_call:
+            return False, "No incoming call."
+        sender = self.incoming_call["from"]
+        self.incoming_call = None
+        return True, sender
+        
     def start_media(self, peer = None):
 
         if self.media_running:
@@ -462,33 +488,14 @@ class NetworkClient:
                     elif cmd == "P2P_REQUEST":
                         sender = headers.get("From")
 
-                        self.peer_ip = headers.get("Peer-IP")
-                        self.peer_port = int(headers.get("UDP-Port", 0)) or None
-                        self.call_peer = sender
-                        
-                        print(f"Incoming call from {sender}")
-                        accept = input("Accept call? (y/n): ")
-
-                        if accept.lower() == "y":
-                            self.send(
-                                "P2P_OFFER",
-                                "/user",
-                                headers={
-                                    "From": self.username,
-                                    "To": sender,
-                                    "UDP-Port": str(self.udp_port)
-                                }
-                            )
-                            self.start_media(peer=sender)
-                            print(f"\n [CALL] Call started with {sender}. "
-                                  f"Type /hangup to end.")
-                            print("> ", end = "", flush = True)
-                        else:
-                            self.call_peer = None
-                            self.peer_ip = None
-                            self.peer_port = None
-                            print(f"\n [CALL] Call from {sender} declined.")
-                            print("> ", end= "", flush = True)
+                        self.incoming_call = {
+                            "from":     sender,
+                            "peer_ip":  headers.get("Peer-IP"),
+                            "peer_port": int(headers.get("UDP-Port", 0)) or None
+                        }
+                        print(f"\n [CALL] Incoming call from {sender}. "
+                              f"Type /accept or /decline.")
+                        print("> ", end="", flush=True)
                             
 
                     elif cmd == "P2P_OFFER":
@@ -626,7 +633,7 @@ def terminal():
                 client.group_msg(parts[1], parts[2])
         elif cmd == "/file":
             if len(parts) < 3:
-                print("Usage: /file <username> <filepath>")
+                print(" Usage: /file <username> <filepath>")
             else:
                 target = parts[1]
                 path = parts[2].strip()
@@ -634,11 +641,11 @@ def terminal():
                 client.send_file(target, path)
         elif cmd == "/gfile":
             if len(parts) < 3:
-                print("Usage: /gfile <group_name> <filepath>")
+                print(" Usage: /gfile <group_name> <filepath>")
             else:
                 group = parts[1]
                 path = parts[2].strip()
-                print(f"Sending '{os.path.basename(path)}' to group {group}")
+                print(f" Sending '{os.path.basename(path)}' to group {group}")
                 client.send_file_group(group, path)
         elif cmd == "/create":
             if len(parts) < 2:
@@ -655,13 +662,28 @@ def terminal():
                 print(" Usage: /call <username>")
             else:
                 client.request_call(parts[1])
+                print(f" Calling {parts[1]}... waiting for them to accept.")
                 
+        elif cmd == "/accept":
+            ok, result = client.accept_call()
+            if ok:
+                print(f" [CALL] Call started with {result}. Type /hangup to end.")
+            else:
+                print(f" {result}")  
+        
+        elif cmd == "/decline":
+            ok, result = client.decline_call()
+            if ok:
+                print(f" [CALL] Call from {result} declined.")
+            else:
+                print(f" {result}")      
+        
         elif cmd == "/hangup":
             if not client.media_running:
-                print("No active call.")
+                print(" No active call.")
             else:
                 client.hangup()
-                print("[CALL] Call ended.")
+                print(" [CALL] Call ended.")
                 
         elif cmd == "/leave":
             if len(parts) < 2:
@@ -673,7 +695,7 @@ def terminal():
         elif cmd == "/quit":
             break
         else:
-            print(f"Unknown command '{cmd}'.")
+            print(f" Unknown command '{cmd}'.")
             
     client.disconnect()
     print("Goodbye.")
